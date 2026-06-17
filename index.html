@@ -518,9 +518,14 @@ mark.search-highlight {
         <input type="text" id="taskTitleInput" class="form-input" placeholder="Task title">
       </div>
       <div class="form-group">
+        <label class="form-label">Type</label>
+        <select id="taskTypeSelect" class="form-select"></select>
+      </div>
+      <div class="form-group">
         <label class="form-label">Column</label>
         <select id="taskColumnSelect" class="form-select"></select>
       </div>
+      <input type="hidden" id="addTaskParentId">
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeTaskModal()">Cancel</button>
@@ -544,6 +549,10 @@ mark.search-highlight {
         <input type="text" id="detailTitle" class="form-input">
       </div>
       <div class="form-group">
+        <label class="form-label">Type</label>
+        <select id="detailTaskTypeSelect" class="form-select"></select>
+      </div>
+      <div class="form-group">
         <label class="form-label">Description</label>
         <div class="editor-toolbar">
           <button type="button" onclick="execCmd('bold')" title="Bold"><b>B</b></button>
@@ -560,6 +569,7 @@ mark.search-highlight {
         <button class="btn btn-secondary" onclick="closeDetailModal()">Close</button>
         <button class="btn btn-primary" onclick="saveTaskDetails()">Save Changes</button>
       </div>
+      <div id="linkedTasksSection"></div>
       <div class="comments-section">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
           <span class="comments-title">Comments</span>
@@ -626,6 +636,7 @@ async function init() {
       const buf = new Uint8Array(base64ToArrayBuffer(saved));
       db = new SQL.Database(buf);
       migrateColumns();
+      migrateTaskSchema();
       renderBoard();
       return;
     } catch (e) { /* ignore corrupted save */ }
@@ -646,14 +657,23 @@ function migrateColumns() {
     db.run(`INSERT INTO columns (id, title, sort_order) VALUES (${nextId}, 'Blocked', 1)`);
 
     autoSave();
-  } catch (e) { console.error('Column migration failed:', e); }
+    } catch (e) { console.error('Column migration failed:', e); }
+}
+
+function migrateTaskSchema() {
+  try {
+    try { db.run("ALTER TABLE tasks ADD COLUMN task_type TEXT DEFAULT 'task' CHECK(task_type IN ('epic', 'task'))"); } catch(e) {}
+    try { db.run("ALTER TABLE tasks ADD COLUMN parent_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL"); } catch(e) {}
+    db.run("UPDATE tasks SET task_type = COALESCE(task_type, 'task') WHERE task_type NOT IN ('epic', 'task')");
+    autoSave();
+  } catch (e) { console.error('Task schema migration failed:', e); }
 }
 
 function initNewDB() {
   db = new SQL.Database();
   try {
     db.run("CREATE TABLE columns (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0)");
-    db.run("CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, column_id INTEGER NOT NULL REFERENCES columns(id), title TEXT NOT NULL, description TEXT DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
+    db.run("CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, column_id INTEGER NOT NULL REFERENCES columns(id), title TEXT NOT NULL, description TEXT DEFAULT '', task_type TEXT DEFAULT 'task' CHECK(task_type IN ('epic', 'task')), parent_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL, sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
     db.run("CREATE TABLE comments (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, body TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
 
     // Seed default columns using direct SQL to avoid parameter binding issues
@@ -799,6 +819,7 @@ function handleImport(event) {
       const buf = new Uint8Array(e.target.result);
       db = new SQL.Database(buf);
       migrateColumns();
+      migrateTaskSchema();
       localStorage.removeItem('kanban_db');
       renderBoard();
       showToast('Database loaded!');
@@ -909,9 +930,29 @@ function createCardElement(task, colId, commentMap = {}, search = '') {
   if (commentMap[task.id] > 0) cardClass += ' has-comments';
   div.className = cardClass;
 
-  let titleText = escapeHtml(task.title);
-  if (search) titleText = highlightSearch(task.title, search);
-  let html = `<div class="card-title">${titleText}</div>`;
+  // Epic badge + child count
+  let typeIcon = '';
+  if (task.task_type === 'epic') {
+    try {
+      const childResult = db.exec("SELECT COUNT(*) AS c FROM tasks WHERE parent_id = ?", [task.id]);
+      const childCount = childResult.length > 0 ? childResult[0].values[0][0] : 0;
+      typeIcon += `<span style="float:right;color:var(--text-secondary);font-size:12px;">📁 (${childCount})</span>`;
+    } catch(e) {
+      typeIcon = '<span style="float:right;color:var(--text-secondary);font-size:12px;">📁</span>';
+    }
+  }
+  // Linked indicators (left of title)
+  let linkedIcons = '';
+  if (task.parent_id) linkedIcons += '⛓ ';
+
+  const escapedTitle = escapeHtml(task.title || '');
+  let displayTitle = escapedTitle;
+  if (search && task.title) {
+    const regex = new RegExp('(' + search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+    displayTitle = escapedTitle.replace(regex, '<mark class="search-highlight">$1</mark>');
+  }
+
+  let html = `<div class="card-title">${typeIcon}${linkedIcons}${displayTitle}</div>`;
   if (task.description) {
     const plainDesc = task.description.replace(/<[^>]*>/g, '');
     let descText = escapeHtml(plainDesc);
@@ -921,6 +962,7 @@ function createCardElement(task, colId, commentMap = {}, search = '') {
   html += `
     <div class="card-actions">
       <button class="card-action-btn" onclick="openDetail(${task.id})" title="Edit details & comments">✏️</button>
+      ${task.task_type === 'epic' ? `<button class="card-action-btn" onclick="openAddTask(null, ${task.id})" title="Add child task">+</button>` : ''}
       <button class="card-action-btn" onclick="quickDelete(${task.id})" title="Delete">&times;</button>
     </div>`;
 
@@ -1029,15 +1071,20 @@ function handleDrop(e, targetColumnId) {
 }
 
 // ========== TASK CRUD ==========
-function openAddTask(columnId) {
+function openAddTask(columnId, parentId) {
   document.getElementById('taskModalTitle').textContent = 'New Task';
   document.getElementById('taskId').value = '';
   document.getElementById('taskTitleInput').value = '';
+  populateTypeSelect('task');
   populateColumnSelect();
+
   // Select the column
   const sel = document.getElementById('taskColumnSelect');
   if (columnId) { for (const opt of sel.options) { if (parseInt(opt.value) === columnId) { sel.value = opt.value; break; } } }
   else { sel.selectedIndex = 0; }
+
+  // Set parent_id from caller (for "add child" flow)
+  document.getElementById('addTaskParentId').value = parentId || '';
 
   document.getElementById('deleteTaskBtn').style.display = 'none';
   openModal('taskModal');
@@ -1048,16 +1095,22 @@ function saveTask() {
   const id = document.getElementById('taskId').value;
   const title = document.getElementById('taskTitleInput').value.trim();
   const colId = parseInt(document.getElementById('taskColumnSelect').value);
+  const taskType = document.getElementById('taskTypeSelect').value || 'task';
 
   if (!title) { showToast('Title is required.'); return; }
 
   try {
     if (id) {
-      db.run("UPDATE tasks SET title = ?, column_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [title, colId, parseInt(id)]);
+      db.run("UPDATE tasks SET title = ?, column_id = ?, task_type = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [title, colId, taskType, parseInt(id)]);
     } else {
+      const parentId = document.getElementById('addTaskParentId').value;
       const maxOrder = db.exec("SELECT COALESCE(MAX(sort_order), -1) AS m FROM tasks WHERE column_id = ?", [colId]);
       const nextOrder = (maxOrder[0] ? maxOrder[0].values[0][0] : 0) + 1;
-      db.run('INSERT INTO tasks (column_id, title, sort_order) VALUES (?, ?, ?)', [colId, title, nextOrder]);
+      if (parentId && parseInt(parentId)) {
+        db.run('INSERT INTO tasks (column_id, title, task_type, parent_id, sort_order) VALUES (?, ?, ?, ?, ?)', [colId, title, taskType, parseInt(parentId), nextOrder]);
+      } else {
+        db.run('INSERT INTO tasks (column_id, title, task_type, sort_order) VALUES (?, ?, ?, ?)', [colId, title, taskType, nextOrder]);
+      }
     }
 
     autoSave();
@@ -1077,6 +1130,25 @@ function deleteTaskFromModal() {
   const id = document.getElementById('taskId').value;
   if (!id || !confirm('Delete this task?')) return;
 
+  // Cascade: delete child comments and tasks first
+  try {
+    const childrenResult = db.exec("SELECT id FROM tasks WHERE parent_id = ?", [parseInt(id)]);
+    if (childrenResult.length > 0) {
+      const children = mapRows(childrenResult[0]);
+      for (const child of children) {
+        db.run("DELETE FROM comments WHERE task_id = ?", [child.id]);
+        // Recursively delete grandchildren
+        const grandkids = db.exec("SELECT id FROM tasks WHERE parent_id = ?", [child.id]);
+        if (grandkids.length > 0) {
+          for (const gk of mapRows(grandkids[0])) {
+            db.run("DELETE FROM comments WHERE task_id = ?", [gk.id]);
+            db.run("DELETE FROM tasks WHERE id = ?", [gk.id]);
+          }
+        }
+      }
+    }
+  } catch(e) {}
+
   db.run("DELETE FROM tasks WHERE id = ?", [parseInt(id)]);
   autoSave();
   closeTaskModal();
@@ -1086,6 +1158,26 @@ function deleteTaskFromModal() {
 
 function quickDelete(taskId) {
   if (!confirm('Delete this task?')) return;
+
+  // Cascade: delete child comments and tasks first
+  try {
+    const childrenResult = db.exec("SELECT id FROM tasks WHERE parent_id = ?", [taskId]);
+    if (childrenResult.length > 0) {
+      const children = mapRows(childrenResult[0]);
+      for (const child of children) {
+        db.run("DELETE FROM comments WHERE task_id = ?", [child.id]);
+        // Recursively delete grandchildren
+        const grandkids = db.exec("SELECT id FROM tasks WHERE parent_id = ?", [child.id]);
+        if (grandkids.length > 0) {
+          for (const gk of mapRows(grandkids[0])) {
+            db.run("DELETE FROM comments WHERE task_id = ?", [gk.id]);
+            db.run("DELETE FROM tasks WHERE id = ?", [gk.id]);
+          }
+        }
+      }
+    }
+  } catch(e) {}
+
   db.run("DELETE FROM tasks WHERE id = ?", [taskId]);
   autoSave();
   renderBoard();
@@ -1159,10 +1251,22 @@ function openDetail(taskId) {
     document.getElementById('detailTaskId').value = task.id;
     _detailOrigTitle = task.title || '';
     document.getElementById('detailTitle').value = _detailOrigTitle;
+    // Set type selects to match current task type (both modals)
+    const selVal = task.task_type || 'task';
+    populateTypeSelect(selVal);
+    document.getElementById('detailTaskTypeSelect').innerHTML = '';
+    ['Task', 'Epic'].forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.toLowerCase();
+      opt.textContent = t;
+      if (t.toLowerCase() === selVal) opt.selected = true;
+      document.getElementById('detailTaskTypeSelect').appendChild(opt);
+    });
     _detailOrigDesc = task.description || '';
     document.getElementById('detailDesc').innerHTML = _detailOrigDesc;
 
     loadComments(taskId);
+    renderLinkedTasks(task);
 
     openModal('detailModal');
   } catch (err) { console.error(err); }
@@ -1177,7 +1281,7 @@ function saveTaskDetails() {
   const plainText = desc.replace(/<[^>]*>/g, '');
   if (!title) { showToast('Title is required.'); return; }
 
-  db.run("UPDATE tasks SET title = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [title, desc, taskId]);
+  db.run("UPDATE tasks SET title = ?, description = ?, task_type = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [title, desc, document.getElementById('detailTaskTypeSelect').value || 'task', taskId]);
   autoSave();
   _detailOrigTitle = title;
   _detailOrigDesc = desc;
@@ -1186,6 +1290,126 @@ function saveTaskDetails() {
   renderBoard();
   showToast('Task updated!');
   savingDetails = false;
+}
+
+function getParentName(parentId) {
+  try {
+    const result = db.exec("SELECT title FROM tasks WHERE id = ?", [parentId]);
+    if (result.length > 0) return mapRows(result[0])[0].title;
+  } catch(e) {}
+  return 'Unknown';
+}
+
+function renderLinkedTasks(task) {
+  const section = document.getElementById('linkedTasksSection');
+  let html = '<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border-color);">';
+  html += '<h3 style="font-size:14px;font-weight:700;margin-bottom:8px;">Linked Tasks</h3>';
+
+  // Parent section
+  const parentId = task.parent_id;
+  if (parentId) {
+    const parentTitle = escapeHtml(getParentName(parentId));
+    html += `<div style="margin-bottom:10px;font-size:13px;display:flex;align-items:center;gap:6px;">
+      <span style="color:var(--text-secondary);">Parent:</span>
+      <a href="#" onclick="openDetail(${parentId}); return false;" style="cursor:pointer;color:var(--accent);">${parentTitle}</a>
+      <button class="card-action-btn" onclick="unlinkParentTask()" title="Remove parent">&times;</button>
+    </div>`;
+  } else {
+    // Show dropdown to select parent (all tasks except this one and its children)
+    html += '<div style="margin-bottom:10px;font-size:13px;display:flex;align-items:center;gap:6px;">';
+    html += '<span style="color:var(--text-secondary);">Parent:</span>';
+    try {
+      const allResult = db.exec("SELECT id, title FROM tasks WHERE id != ?", [task.id]);
+      if (allResult.length > 0) {
+        let childrenIds = '';
+        try {
+          const childResult = db.exec("SELECT id FROM tasks WHERE parent_id = ?", [task.id]);
+          if (childResult.length > 0) childrenIds = mapRows(childResult[0]).map(c => c.id).join(',');
+        } catch(e) {}
+        html += `<select id="parentTaskSelect" style="flex:1;padding:4px 6px;border:1px solid var(--border-color);border-radius:var(--radius);background:var(--bg-primary);color:var(--text-primary);font-size:12px;" onchange="setParentTask(this.value)">`;
+        html += '<option value="">None</option>';
+        const allTasks = mapRows(allResult[0]);
+        for (const t of allTasks) {
+          // Skip if this task is a child of itself (circular) or already a parent of current task
+          const excludeChildrenIds = childrenIds ? ',' + childrenIds + ',' : '';
+          if (!excludeChildrenIds.includes(',' + t.id + ',')) {
+            html += '<option value="' + t.id + '">' + escapeHtml(t.title).slice(0, 50) + '</option>';
+          }
+        }
+        html += '</select>';
+      } else {
+        html += '<span style="color:var(--text-secondary);font-style:italic;">No other tasks available</span>';
+      }
+    } catch(e) {
+      html += '<span style="color:var(--text-secondary);">Error loading parent tasks</span>';
+    }
+    html += '</div>';
+  }
+
+  // Children section
+  try {
+    const childResult = db.exec("SELECT * FROM tasks WHERE parent_id = ? ORDER BY sort_order", [task.id]);
+    if (childResult.length > 0) {
+      const children = mapRows(childResult[0]);
+      html += '<div style="margin-top:8px;"><div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:4px;">Child Tasks:</div>';
+      for (const child of children) {
+        html += `<div style="margin-bottom:3px;font-size:13px;display:flex;align-items:center;gap:6px;">
+          <a href="#" onclick="openDetail(${child.id}); return false;" style="cursor:pointer;color:var(--accent);text-decoration:none;">${escapeHtml(child.title)}</a>
+          ${task.task_type === 'epic' || task.parent_id ? '' : ''}
+        </div>`;
+      }
+      // Add child button only for epic or non-ephemeral tasks
+      html += '</div>';
+    } else {
+      if (task.task_type === 'epic') {
+        html += '<div style="margin-top:8px;font-size:12px;color:var(--text-secondary);">No child tasks yet. Click + on this card to add one.</div>';
+      }
+    }
+  } catch(e) {}
+
+  // Add child button for epic cards
+  if (task.task_type === 'epic') {
+    html += `<button class="btn btn-secondary" style="margin-top:8px;padding:4px 10px;font-size:12px;" onclick="openAddTask(${parseInt(document.getElementById('detailTaskId').value)}, ${task.id}); closeDetailModal();">+ Add Child Task</button>`;
+  }
+
+  html += '</div>';
+  section.innerHTML = html;
+}
+
+function setParentTask(value) {
+  const taskId = parseInt(document.getElementById('detailTaskId').value);
+  if (!value || !parseInt(value)) {
+    db.run("UPDATE tasks SET parent_id = NULL WHERE id = ?", [taskId]);
+  } else {
+    // Prevent circular references: check that the new parent doesn't already have this task as an ancestor
+    const targetId = parseInt(value);
+    try {
+      let currentParent = targetId;
+      let isCircular = false;
+      while (currentParent) {
+        const res = db.exec("SELECT parent_id FROM tasks WHERE id = ?", [currentParent]);
+        if (res.length === 0 || !res[0].values[0][0]) break;
+        currentParent = res[0].values[0][0];
+        if (currentParent === taskId) { isCircular = true; break; }
+      }
+      if (isCircular) { showToast('Cannot create circular reference'); return; }
+    } catch(e) {}
+
+    db.run("UPDATE tasks SET parent_id = ? WHERE id = ?", [targetId, taskId]);
+  }
+  autoSave();
+  const taskResult = db.exec("SELECT * FROM tasks WHERE id = ?", [taskId]);
+  if (taskResult.length > 0) renderLinkedTasks(mapRows(taskResult[0])[0]);
+  renderBoard();
+}
+
+function unlinkParentTask() {
+  const taskId = parseInt(document.getElementById('detailTaskId').value);
+  db.run("UPDATE tasks SET parent_id = NULL WHERE id = ?", [taskId]);
+  autoSave();
+  const taskResult = db.exec("SELECT * FROM tasks WHERE id = ?", [taskId]);
+  if (taskResult.length > 0) renderLinkedTasks(mapRows(taskResult[0])[0]);
+  renderBoard();
 }
 
 function loadComments(taskId) {
@@ -1435,8 +1659,20 @@ function deleteColumn(colId) {
   }
 }
 
-// ========== COLUMN SELECT POPULATION ==========
-function populateColumnSelect() {
+// ========== TYPE & PARENT SELECT POPULATION ==========
+function populateTypeSelect(selected) {
+  const sel = document.getElementById('taskTypeSelect');
+  sel.innerHTML = '';
+  ['Task', 'Epic'].forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.toLowerCase();
+    opt.textContent = t;
+    if (t.toLowerCase() === selected) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+function populateColumnSelect(selectedId) {
   try {
     const result = db.exec("SELECT * FROM columns ORDER BY sort_order");
     if (result.length === 0) return;
@@ -1447,6 +1683,7 @@ function populateColumnSelect() {
       const opt = document.createElement('option');
       opt.value = c.id;
       opt.textContent = c.title;
+      if (selectedId && parseInt(opt.value) === selectedId) opt.selected = true;
       sel.appendChild(opt);
     }
   } catch (err) {}

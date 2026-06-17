@@ -5,6 +5,8 @@ An offline-only Kanban board that runs entirely in the browser with SQLite via W
 ## Features
 
 - **Drag-and-drop** cards between columns using native HTML5 API
+- **Task types** — create Epic tasks (for projects) or regular Tasks. Epics display a 📁 badge with child count on the card
+- **Parent/child linking** — any task can be linked as a child of another. Detail modal shows a "Linked Tasks" section for managing hierarchy with circular-reference prevention
 - **Rich text editing** for task descriptions and comments (bold, italic, lists, code blocks)
 - **Persistent storage** — database saved to localStorage as base64, with import/export via `.sqlite` files
 - **Dark/light theme** toggle (`Ctrl+T` / `Cmd+T`)
@@ -45,7 +47,7 @@ pkill -f "python3 -m http.server"
 ## Project Structure
 
 ```
-index.html          # Entire application (~1500 lines): HTML + CSS + JS
+index.html          # Entire application (~1804 lines): HTML + CSS + JS
 server.js           # Minimal Node.js HTTP server (WASM requires HTTP protocol)
 start.sh            # Launcher with portable path detection and nohup backgrounding
 assets/sql-wasm.js  # sql.js WASM loader (~50KB)
@@ -57,7 +59,7 @@ assets/sql-wasm.wasm # SQLite WebAssembly binary (~650KB)
 - **Single-file app**: Everything lives in `index.html` — CSS in `<style>`, JavaScript in `<script>`. No modules, no imports, no bundler.
 - **Database**: Uses [sql.js](https://github.com/sql-js/sql.js) to run SQLite as WebAssembly entirely in-memory. Loaded via `initSqlJs({ locateFile: file => 'assets/' + file })` — relative path is critical.
 - **Persistence**: Database exported to base64 and stored in `localStorage` key `kanban_db`. Uses chunked `String.fromCharCode.apply()` (32KB chunks) to avoid stack overflow on large databases. Theme stored separately in `kanban_theme`.
-- **Schema**: 3 tables — `columns`, `tasks`, `comments`. Default columns seeded at init: "To Do", "Blocked", "In Progress", "Done".
+- **Schema**: 3 tables — `columns`, `tasks` (with `task_type`: 'epic' or 'task', and `parent_id` for linking tasks), `comments`. Default columns seeded at init: "To Do", "Blocked", "In Progress", "Done". Existing databases are migrated automatically via `migrateTaskSchema()` which adds the new columns with safe defaults.
 
 ## Keyboard Shortcuts
 
