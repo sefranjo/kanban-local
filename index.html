@@ -378,6 +378,8 @@ body {
 }
 
 .comment-body { font-size: 14px; margin-bottom: 6px; white-space: pre-wrap; word-break: break-word; }
+.comment-body ul, .comment-body ol { margin: 0.5em 0; padding-left: 1.8em; }
+.comment-body li { margin-bottom: 0.25em; }
 
 .comment-meta { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--text-secondary); }
 
@@ -1172,7 +1174,17 @@ function loadComments(taskId) {
 
       let bodyHtml = '';
       if (c._editing) {
-        bodyHtml = '<textarea class="form-textarea" id="editCommentText" rows="3">' + escapeHtml(c.body) + '</textarea>';
+        bodyHtml = `
+          <div class="editor-toolbar">
+            <button type="button" onclick="execCmd('bold')" title="Bold"><b>B</b></button>
+            <button type="button" onclick="execCmd('italic')" title="Italic"><i>I</i></button>
+            <button type="button" onclick="execCmd('underline')" title="Underline"><u>U</u></button>
+            <button type="button" onclick="execCmd('strikeThrough')" title="Strikethrough"><s>S</s></button>
+            <button type="button" onclick="execCmd('insertUnorderedList')" title="Bullet list">• List</button>
+            <button type="button" onclick="execCmd('insertOrderedList')" title="Numbered list">1. List</button>
+            <button type="button" onclick="execCmd('formatBlock', 'pre')" title="Code block">&lt;/&gt;</button>
+          </div>
+          <div class="form-textarea contenteditable-editor" id="editCommentText" contenteditable="true" style="min-height:60px;max-height:200px;overflow-y:auto;">${c.body}</div>`;
       } else {
         bodyHtml = '<div class="comment-body">' + c.body + '</div>';
       }
@@ -1202,7 +1214,7 @@ function renderComments(taskId) {
     }
     const comments = mapRows(result[0]);
 
-    // Add _editing flag based on whether there's an edit textarea in DOM
+    // Add _editing flag based on whether there's an active edit editor in DOM
     for (const c of comments) {
       c._editing = !!document.querySelector('#editCommentText');
     }
@@ -1247,7 +1259,17 @@ function loadCommentsWithEditFlag(taskId, editId) {
 
       let bodyHtml;
       if (c._editing) {
-        bodyHtml = '<textarea class="form-textarea" id="editCommentText" rows="3">' + escapeHtml(c.body) + '</textarea>';
+        bodyHtml = `
+          <div class="editor-toolbar">
+            <button type="button" onclick="execCmd('bold')" title="Bold"><b>B</b></button>
+            <button type="button" onclick="execCmd('italic')" title="Italic"><i>I</i></button>
+            <button type="button" onclick="execCmd('underline')" title="Underline"><u>U</u></button>
+            <button type="button" onclick="execCmd('strikeThrough')" title="Strikethrough"><s>S</s></button>
+            <button type="button" onclick="execCmd('insertUnorderedList')" title="Bullet list">• List</button>
+            <button type="button" onclick="execCmd('insertOrderedList')" title="Numbered list">1. List</button>
+            <button type="button" onclick="execCmd('formatBlock', 'pre')" title="Code block">&lt;/&gt;</button>
+          </div>
+          <div class="form-textarea contenteditable-editor" id="editCommentText" contenteditable="true" style="min-height:60px;max-height:200px;overflow-y:auto;">${c.body}</div>`;
       } else {
         bodyHtml = '<div class="comment-body">' + c.body + '</div>';
       }
@@ -1266,16 +1288,17 @@ function loadCommentsWithEditFlag(taskId, editId) {
       list.appendChild(div);
     }
 
-    const textarea = document.getElementById('editCommentText');
-    if (textarea) { setTimeout(() => textarea.focus(), 50); }
+    const editor = document.getElementById('editCommentText');
+    if (editor) { setTimeout(() => editor.focus(), 50); }
   } catch (err) {}
 }
 
 function saveComment(commentId) {
-  const newText = document.getElementById('editCommentText').value.trim();
-  if (!newText) return;
+  const editor = document.getElementById('editCommentText');
+  const html = editor.innerHTML.trim();
+  if (!html || html === '<br>') return;
 
-  db.run("UPDATE comments SET body = ? WHERE id = ?", [newText, parseInt(commentId)]);
+  db.run("UPDATE comments SET body = ? WHERE id = ?", [html, parseInt(commentId)]);
   autoSave();
 
   const taskId = parseInt(document.getElementById('detailTaskId').value);
