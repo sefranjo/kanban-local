@@ -1,5 +1,5 @@
 #!/bin/bash
-cd /home/usuario/AI/projects/kanban
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Try Node first, then Python
 if command -v node &>/dev/null; then

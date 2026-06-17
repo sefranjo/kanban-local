@@ -173,10 +173,10 @@ body {
 
 .card:hover { box-shadow: var(--shadow); }
 
-.card.dragging { opacity: 0.4; transform: rotate(3deg); }
+.card.dragging { opacity: 0.4; transform: rotate(3deg); pointer-events: none; }
 
 .card-title { font-size: 14px; line-height: 1.4; word-break: break-word; margin-bottom: 4px; }
-.card-description { font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 6px; }
+.card-description { font-size: 12px; color: var(--text-secondary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-bottom: 6px; }
 
 .has-comments::after {
   content: '💬';
@@ -446,6 +446,18 @@ body {
 
 /* Empty state */
 .empty-column { text-align: center; padding: 20px; color: var(--text-secondary); font-size: 13px; }
+
+@media (max-width: 900px) {
+  .topbar { flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
+  .search-box { width: 100%; order: -1; }
+  .board { flex-direction: column; align-items: stretch; padding: 12px; overflow-x: visible; gap: 12px; }
+  .column { min-width: unset; width: 100%; max-height: none; }
+}
+
+@media (max-width: 600px) {
+  .topbar-left, .topbar-right { flex-wrap: wrap; justify-content: center; }
+  .modal { width: calc(100% - 24px); max-height: 95vh; margin: 8px; }
+}
 </style>
 </head>
 <body>
@@ -461,6 +473,7 @@ body {
     <button class="btn btn-secondary" onclick="importDatabase()">Open .sqlite</button>
     <button class="btn btn-primary" onclick="exportDatabase()">Save .sqlite</button>
     <input type="file" id="importFileInput" class="hidden-input" accept=".sqlite,.db" onchange="handleImport(event)">
+    <button class="btn btn-secondary" onclick="showStorageInfo()" title="View storage usage">&#x267E;</button>
     <button class="btn btn-secondary" id="themeToggle" onclick="toggleTheme()" title="Toggle theme (Ctrl+T)">🌙</button>
   </div>
 </div>
@@ -561,11 +574,14 @@ let db = null;
 let SQL = null;
 let draggedCardId = null;
 let draggedFromColumn = null;
+let savingTask = false;
+let savingDetails = false;
 
 const DEFAULT_COLUMNS = [
   { id: 1, title: 'To Do', order: 0 },
-  { id: 2, title: 'In Progress', order: 1 },
-  { id: 3, title: 'Done', order: 2 }
+  { id: 2, title: 'Blocked', order: 1 },
+  { id: 3, title: 'In Progress', order: 2 },
+  { id: 4, title: 'Done', order: 3 }
 ];
 
 // ========== INIT ==========
@@ -584,12 +600,28 @@ async function init() {
     try {
       const buf = new Uint8Array(base64ToArrayBuffer(saved));
       db = new SQL.Database(buf);
+      migrateColumns();
       renderBoard();
       return;
     } catch (e) { /* ignore corrupted save */ }
   }
 
   initNewDB();
+}
+
+function migrateColumns() {
+  try {
+    const result = db.exec("SELECT COUNT(*) AS c FROM columns WHERE title = 'Blocked'");
+    if (result[0].values[0][0] > 0) return;
+
+    // Shift sort_order for existing non-To-Done columns to make room at position 1
+    db.run("UPDATE columns SET sort_order = sort_order + 1 WHERE id != 1 AND title != 'Done'");
+
+    const nextId = db.exec("SELECT COALESCE(MAX(id), 0) AS m FROM columns")[0].values[0][0] + 1;
+    db.run(`INSERT INTO columns (id, title, sort_order) VALUES (${nextId}, 'Blocked', 1)`);
+
+    autoSave();
+  } catch (e) { console.error('Column migration failed:', e); }
 }
 
 function initNewDB() {
@@ -601,8 +633,9 @@ function initNewDB() {
 
     // Seed default columns using direct SQL to avoid parameter binding issues
     db.run("INSERT INTO columns (id, title, sort_order) VALUES (1, 'To Do', 0)");
-    db.run("INSERT INTO columns (id, title, sort_order) VALUES (2, 'In Progress', 1)");
-    db.run("INSERT INTO columns (id, title, sort_order) VALUES (3, 'Done', 2)");
+    db.run("INSERT INTO columns (id, title, sort_order) VALUES (2, 'Blocked', 1)");
+    db.run("INSERT INTO columns (id, title, sort_order) VALUES (3, 'In Progress', 2)");
+    db.run("INSERT INTO columns (id, title, sort_order) VALUES (4, 'Done', 3)");
 
     autoSave();
     renderBoard();
@@ -613,6 +646,70 @@ function initNewDB() {
 }
 
 // ========== PERSISTENCE ==========
+let storageWarningShown = false;
+
+function getStorageUsage() {
+  try {
+    if (navigator.storage && navigator.storage.estimate) {
+      return navigator.storage.estimate().then(est => ({ used: est.usage, quota: est.quota }));
+    }
+    // Fallback: estimate from localStorage directly
+    let total = 0;
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      total += (key.length + localStorage.getItem(key).length) * 2; // UTF-16 chars
+    }
+    return Promise.resolve({ used: total, quota: 5 * 1024 * 1024 });
+  } catch {
+    return Promise.resolve({ used: 0, quota: 5 * 1024 * 1024 });
+  }
+}
+
+function estimateBase64Size(bytes) {
+  // Roughly: base64 = ceil(raw/3)*4 bytes, so ~1.37x raw size
+  return Math.ceil((bytes / 3) * 4);
+}
+
+async function showStorageInfo() {
+  try {
+    const info = await getStorageUsage();
+    const kb = (info.used / 1024).toFixed(1);
+    const mb = (info.used / (1024 * 1024)).toFixed(2);
+    const limitMb = (info.quota / (1024 * 1024)).toFixed(0);
+    showToast('Storage used: ' + (info.used > 1048576 ? mb + ' MB' : kb + ' KB') + ' of ~' + limitMb + ' MB');
+  } catch {
+    showToast('Could not measure storage usage.');
+  }
+}
+
+function autoSave() {
+  try {
+    const bytes = getDBBytes();
+    const b64Size = estimateBase64Size(bytes);
+    const currentStored = (localStorage.getItem('kanban_db') || '').length;
+    const estimatedTotal = currentStored + b64Size;
+
+    // Pre-flight warning at 80% of typical quota
+    if (!storageWarningShown && estimatedTotal > 4.5 * 1024 * 1024) {
+      storageWarningShown = true;
+      showToast('Storage nearly full — please export your database as backup.');
+    }
+
+    localStorage.setItem('kanban_db', arrayBufferToBase64(bytes));
+  } catch (e) {
+    if (e.name === 'QuotaExceededError' || e.code === 22) {
+      showToast('Storage full! Please export your database immediately — new changes will not be saved.');
+    } else {
+      console.error('Auto-save failed:', e);
+    }
+  }
+}
+
+function clearStorageWarning() {
+  storageWarningShown = false;
+}
+
+// ========== DB HELPERS ==========
 function getDBBytes() {
   return new Uint8Array(db.export());
 }
@@ -636,15 +733,6 @@ function base64ToArrayBuffer(base64) {
     bytes[i] = binaryString.charCodeAt(i);
   }
   return bytes.buffer;
-}
-
-function autoSave() {
-  try {
-    const bytes = getDBBytes();
-    localStorage.setItem('kanban_db', arrayBufferToBase64(bytes));
-  } catch (e) {
-    console.error('Auto-save failed:', e);
-  }
 }
 
 function newDatabase() {
@@ -682,8 +770,10 @@ function handleImport(event) {
   const reader = new FileReader();
   reader.onload = function (e) {
     try {
+      clearStorageWarning();
       const buf = new Uint8Array(e.target.result);
       db = new SQL.Database(buf);
+      migrateColumns();
       localStorage.removeItem('kanban_db');
       renderBoard();
       showToast('Database loaded!');
@@ -719,20 +809,36 @@ function createColumnElement(col, filter = '') {
 
   let query = "SELECT * FROM tasks WHERE column_id = ? ORDER BY sort_order";
   let result = db.exec(query, [col.id]);
-  let tasks = [];
+  const allTasks = [];
   if (result.length > 0) {
-    tasks = mapRows(result[0]).filter(t => !filter || t.title.toLowerCase().includes(filter) || t.description.toLowerCase().includes(filter));
+    allTasks.push(...mapRows(result[0]));
+  }
+  const totalTaskCount = allTasks.length;
+  const tasks = filter ? allTasks.filter(t => t.title.toLowerCase().includes(filter) || t.description.toLowerCase().includes(filter)) : allTasks;
+
+  // Batch comment count query instead of N+1 per-card queries
+  const taskIdSet = allTasks.map(t => t.id);
+  let commentMap = {};
+  if (taskIdSet.length > 0) {
+    const placeholders = taskIdSet.map(() => '?').join(',');
+    try {
+      const cntResult = db.exec(`SELECT task_id, COUNT(*) as c FROM comments WHERE task_id IN (${placeholders}) GROUP BY task_id`, taskIdSet);
+      if (cntResult.length > 0) {
+        const rows = mapRows(cntResult[0]);
+        for (const r of rows) commentMap[r.task_id] = r.c;
+      }
+    } catch(e) {}
   }
 
   const titleEditable = document.createElement('span');
   titleEditable.className = 'column-title';
-  titleEditable.innerHTML = col.title + '<span class="column-count"> (' + tasks.length + ')</span>';
-  titleEditable.onclick = () => renameColumn(col.id, titleEditable);
+  titleEditable.innerHTML = col.title + '<span class="column-count"> (' + totalTaskCount + ')</span>';
+  titleEditable.onclick = () => renameColumn(col.id);
 
   columnDiv.innerHTML = `
     <div class="column-header">
       <span></span>
-      <button class="column-menu-btn" onclick="showColumnMenu(event, ${col.id})">&#x25CF;</button>
+      <button class="column-menu-btn" onclick="showColumnMenu(event, ${col.id})" title="Column options">&#x22EE;</button>
     </div>`;
 
   const headerEl = columnDiv.querySelector('.column-header');
@@ -754,7 +860,7 @@ function createColumnElement(col, filter = '') {
   }
 
   for (const task of tasks) {
-    body.appendChild(createCardElement(task, col.id));
+    body.appendChild(createCardElement(task, col.id, commentMap));
   }
 
   columnDiv.appendChild(body);
@@ -768,26 +874,20 @@ function createColumnElement(col, filter = '') {
   return columnDiv;
 }
 
-function createCardElement(task, colId) {
+function createCardElement(task, colId, commentMap = {}) {
   const div = document.createElement('div');
   let cardClass = 'card';
-  if (task.description && task.description.trim() !== '') {
-    cardClass += ' has-description';
-  }
   div.draggable = true;
   div.dataset.taskId = task.id;
   div.dataset.columnId = task.column_id || colId;
 
-  // Check for comments
-  try {
-    const cnt = db.exec("SELECT COUNT(*) AS c FROM comments WHERE task_id = " + task.id);
-    if (cnt.length > 0 && cnt[0].values[0][0] > 0) cardClass += ' has-comments';
-  } catch(e) {}
+  if (commentMap[task.id] > 0) cardClass += ' has-comments';
   div.className = cardClass;
 
   let html = `<div class="card-title">${escapeHtml(task.title)}</div>`;
   if (task.description) {
-    html += `<div class="card-description">${escapeHtml(task.description)}</div>`;
+    const plainDesc = task.description.replace(/<[^>]*>/g, '');
+    html += `<div class="card-description" title="${escapeHtml(plainDesc)}">${escapeHtml(plainDesc)}</div>`;
   }
   html += `
     <div class="card-actions">
@@ -809,6 +909,7 @@ function createCardElement(task, colId) {
     document.querySelectorAll('.column-body').forEach(b => b.classList.remove('drag-over'));
     draggedCardId = null;
     draggedFromColumn = null;
+    dropTargetCardId = null;
   });
 
   return div;
@@ -829,22 +930,60 @@ function escapeHtml(str) {
 }
 
 // ========== DRAG & DROP ==========
+let dropTargetCardId = null;
+
+document.addEventListener('dragover', function(e) {
+  if (draggedCardId === null) return;
+  const card = e.target.closest('.card');
+  if (card) {
+    dropTargetCardId = parseInt(card.dataset.taskId);
+    e.dataTransfer.dropEffect = 'move';
+  } else {
+    dropTargetCardId = null;
+  }
+});
+
 function handleDrop(e, targetColumnId) {
   e.preventDefault();
   document.querySelectorAll('.column-body').forEach(b => b.classList.remove('drag-over'));
 
   if (draggedCardId === null) return;
+  const sourceColumnId = draggedFromColumn != null ? draggedFromColumn : targetColumnId;
 
   try {
-    // Update task column
-    db.run("UPDATE tasks SET column_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [targetColumnId, draggedCardId]);
+    // Determine sort_order based on drop position within the column body
+    let newSortOrder;
+    if (dropTargetCardId && parseInt(dropTargetCardId) !== draggedCardId) {
+      const targetResult = db.exec("SELECT * FROM tasks WHERE id = ?", [dropTargetCardId]);
+      if (targetResult.length > 0) {
+        const targetTask = mapRows(targetResult[0])[0];
+        // Check if drop is below or above the target card by comparing mouse Y to card center
+        const targetEl = document.querySelector('.card[data-task-id="' + dropTargetCardId + '"]');
+        const bodyRect = e.currentTarget.getBoundingClientRect();
+        const targetRect = targetEl.getBoundingClientRect();
+        const targetMid = (targetRect.top - bodyRect.top) + targetRect.height / 2;
+        if (e.clientY - bodyRect.top > targetMid) {
+          // Drop after target card
+          newSortOrder = targetTask.sort_order;
+        } else {
+          // Drop before target card
+          newSortOrder = targetTask.sort_order - 0.5;
+        }
+      } else {
+        const maxO = db.exec("SELECT COALESCE(MAX(sort_order), -1) AS m FROM tasks WHERE column_id = ?", [targetColumnId]);
+        newSortOrder = ((maxO[0] ? maxO[0].values[0][0] : 0) + 1);
+      }
+    } else {
+      // Dropped on empty area or self — append to end
+      const maxO = db.exec("SELECT COALESCE(MAX(sort_order), -1) AS m FROM tasks WHERE column_id = ?", [targetColumnId]);
+      newSortOrder = ((maxO[0] ? maxO[0].values[0][0] : 0) + 1);
+    }
 
-    // Reorder: find max sort_order in new column and set above it
-    const maxOrder = db.exec("SELECT COALESCE(MAX(sort_order), -1) AS m FROM tasks WHERE column_id = " + targetColumnId);
-    const nextOrder = (maxOrder[0] ? maxOrder[0].values[0][0] : 0) + 1;
-    // Actually, let's find the position: we want to drop it after items in this column
-    // Simple approach: set sort_order to a high value so it goes to bottom of sorted list
-    db.run("UPDATE tasks SET sort_order = ? WHERE id = ?", [nextOrder, draggedCardId]);
+    if (sourceColumnId !== targetColumnId) {
+      db.run("UPDATE tasks SET column_id = ?, sort_order = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [targetColumnId, newSortOrder, draggedCardId]);
+    } else {
+      db.run("UPDATE tasks SET sort_order = ? WHERE id = ?", [newSortOrder, draggedCardId]);
+    }
 
     autoSave();
     renderBoard();
@@ -880,18 +1019,21 @@ function saveTask() {
     if (id) {
       db.run("UPDATE tasks SET title = ?, column_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [title, colId, parseInt(id)]);
     } else {
-      const maxOrder = db.exec("SELECT COALESCE(MAX(sort_order), -1) AS m FROM tasks WHERE column_id = " + colId);
+      const maxOrder = db.exec("SELECT COALESCE(MAX(sort_order), -1) AS m FROM tasks WHERE column_id = ?", [colId]);
       const nextOrder = (maxOrder[0] ? maxOrder[0].values[0][0] : 0) + 1;
       db.run('INSERT INTO tasks (column_id, title, sort_order) VALUES (?, ?, ?)', [colId, title, nextOrder]);
     }
 
     autoSave();
+    savingTask = true;
     closeTaskModal();
     renderBoard();
     showToast(id ? 'Task updated!' : 'Task created!');
   } catch (err) {
     console.error(err);
     showToast('Error saving task.');
+  } finally {
+    savingTask = false;
   }
 }
 
@@ -908,7 +1050,7 @@ function deleteTaskFromModal() {
 
 function quickDelete(taskId) {
   if (!confirm('Delete this task?')) return;
-  db.run("DELETE FROM tasks WHERE id = " + taskId);
+  db.run("DELETE FROM tasks WHERE id = ?", [taskId]);
   autoSave();
   renderBoard();
   showToast('Task deleted.');
@@ -958,16 +1100,20 @@ function saveNewComment() {
 }
 
 function cancelCommentEditor() {
+  const editor = document.getElementById('newCommentText');
+  if (commentEditorOpen && editor.innerHTML.trim() && editor.innerHTML.trim() !== '<br>') {
+    if (!confirm('Discard unsaved comment?')) return;
+  }
   commentEditorOpen = false;
   document.getElementById('commentInputArea').style.display = 'none';
   document.getElementById('addCommentBtn').style.display = '';
-  document.getElementById('newCommentText').innerHTML = '';
+  editor.innerHTML = '';
 }
 
 // ========== TASK DETAIL (with comments) ==========
 function openDetail(taskId) {
   try {
-    const result = db.exec("SELECT * FROM tasks WHERE id = " + taskId);
+    const result = db.exec("SELECT * FROM tasks WHERE id = ?", [taskId]);
     if (result.length === 0) return;
     const task = mapRows(result[0])[0];
 
@@ -992,9 +1138,11 @@ function saveTaskDetails() {
 
   db.run("UPDATE tasks SET title = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [title, desc, taskId]);
   autoSave();
+  savingDetails = true;
   closeDetailModal();
   renderBoard();
   showToast('Task updated!');
+  savingDetails = false;
 }
 
 function loadComments(taskId) {
@@ -1002,7 +1150,7 @@ function loadComments(taskId) {
   list.innerHTML = '';
 
   try {
-    const result = db.exec("SELECT * FROM comments WHERE task_id = " + taskId + " ORDER BY created_at ASC");
+    const result = db.exec("SELECT * FROM comments WHERE task_id = ? ORDER BY created_at ASC", [taskId]);
     if (result.length === 0) return;
     const comments = mapRows(result[0]);
 
@@ -1027,7 +1175,7 @@ function loadComments(taskId) {
           <div class="comment-actions">
             ${c._editing
               ? '<button class="card-action-btn" onclick="saveComment(' + c.id + ')">💾</button><button class="card-action-btn" onclick="renderComments(' + taskId + ')">Cancel</button>'
-              : '<button class="card-action-btn" onclick="editComment(' + c.id + ',' + taskId + ')">✏️</button>'}
+              : '<button class="card-action-btn" onclick="editComment(' + c.id + ',' + taskId + ')">✏️</button><button class="card-action-btn" onclick="deleteComment(' + c.id + ',' + taskId + ')" title="Delete">&times;</button>'}
           </div>
       `;
 
@@ -1038,7 +1186,7 @@ function loadComments(taskId) {
 
 function renderComments(taskId) {
   try {
-    const result = db.exec("SELECT * FROM comments WHERE task_id = " + taskId + " ORDER BY created_at ASC");
+    const result = db.exec("SELECT * FROM comments WHERE task_id = ? ORDER BY created_at ASC", [taskId]);
     if (result.length === 0) {
       document.getElementById('commentList').innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">No comments yet.</p>';
       return;
@@ -1056,7 +1204,7 @@ function renderComments(taskId) {
 
 function editComment(commentId, taskId) {
   try {
-    const result = db.exec("SELECT * FROM comments WHERE id = " + commentId);
+    const result = db.exec("SELECT * FROM comments WHERE id = ?", [commentId]);
     if (result.length === 0) return;
     // Mark this one as editing (simple flag approach)
     const temp = document.createElement('div');
@@ -1071,7 +1219,7 @@ function editComment(commentId, taskId) {
 function loadCommentsWithEditFlag(taskId, editId) {
   const list = document.getElementById('commentList');
   try {
-    const result = db.exec("SELECT * FROM comments WHERE task_id = " + taskId + " ORDER BY created_at ASC");
+    const result = db.exec("SELECT * FROM comments WHERE task_id = ? ORDER BY created_at ASC", [taskId]);
     if (result.length === 0) return;
     let comments = mapRows(result[0]);
 
@@ -1102,7 +1250,7 @@ function loadCommentsWithEditFlag(taskId, editId) {
           <div class="comment-actions">
             ${c._editing
               ? '<button class="card-action-btn" onclick="saveComment(' + c.id + ')">💾</button><button class="card-action-btn" onclick="renderComments(' + taskId + ')">Cancel</button>'
-              : '<button class="card-action-btn" onclick="editComment(' + c.id + ',' + taskId + ')">✏️</button>'}
+               : '<button class="card-action-btn" onclick="editComment(' + c.id + ',' + taskId + ')">✏️</button><button class="card-action-btn" onclick="deleteComment(' + c.id + ',' + taskId + ')" title="Delete">&times;</button>'}
           </div>
         </div>`;
 
@@ -1125,6 +1273,13 @@ function saveComment(commentId) {
   renderComments(taskId);
 }
 
+function deleteComment(commentId, taskId) {
+  if (!confirm('Delete this comment?')) return;
+  db.run("DELETE FROM comments WHERE id = ?", [parseInt(commentId)]);
+  autoSave();
+  renderComments(taskId);
+}
+
 // ========== COLUMN MENU & RENAME ==========
 function showColumnMenu(e, colId) {
   e.stopPropagation();
@@ -1134,7 +1289,7 @@ function showColumnMenu(e, colId) {
   const menu = document.createElement('div');
   menu.className = 'context-menu';
   menu.innerHTML = `
-    <button class="context-menu-item" onclick="renameColumn(${colId}, null)">Rename</button>
+    <button class="context-menu-item" onclick="renameColumn(${colId})">Rename</button>
     <button class="context-menu-item" onclick="moveColumn(${colId}, -1)">Move Left</button>
     <button class="context-menu-item" onclick="moveColumn(${colId}, 1)">Move Right</button>
     <button class="context-menu-item" style="color:var(--danger)" onclick="deleteColumn(${colId})">Delete Column</button>`;
@@ -1146,17 +1301,21 @@ function showColumnMenu(e, colId) {
   menu.style.top = (rect.bottom + 4) + 'px';
   menu.style.right = (window.innerWidth - rect.right) + 'px';
 
-  setTimeout(() => {
-    document.addEventListener('click', function handler() {
-      menu.remove();
-      document.removeEventListener('click', handler);
-    });
-  }, 10);
+  function closeMenu() {
+    menu.remove();
+    document.removeEventListener('click', closeMenu);
+  }
+  // Attach handler immediately — use .closest() to avoid closing when clicking inside the menu
+  document.addEventListener('click', function handler(ev) {
+    if (!ev.target.closest('.context-menu')) {
+      closeMenu();
+    }
+  });
 }
 
-function renameColumn(colId, titleEl) {
+function renameColumn(colId) {
   try {
-    const result = db.exec("SELECT * FROM columns WHERE id = " + colId);
+    const result = db.exec("SELECT * FROM columns WHERE id = ?", [colId]);
     if (result.length === 0) return;
     const col = mapRows(result[0])[0];
 
@@ -1192,13 +1351,24 @@ function moveColumn(colId, direction) {
 
 function deleteColumn(colId) {
   if (!confirm('Delete this column and all its tasks?')) return;
+  colId = parseInt(colId);
 
-  db.run("DELETE FROM comments WHERE task_id IN (SELECT id FROM tasks WHERE column_id = " + colId + ")");
-  db.run("DELETE FROM tasks WHERE column_id = " + colId);
-  db.run("DELETE FROM columns WHERE id = ?", [colId]);
+  try {
+    // Get task IDs first to build a safe IN list
+    const result = db.exec("SELECT id FROM tasks WHERE column_id = ?", [colId]);
+    const taskIds = result.length > 0 ? mapRows(result[0]).map(t => t.id) : [];
 
-  autoSave();
-  renderBoard();
+    for (const tid of taskIds) {
+      db.run("DELETE FROM comments WHERE task_id = ?", [tid]);
+      db.run("DELETE FROM tasks WHERE id = ?", [tid]);
+    }
+    db.run("DELETE FROM columns WHERE id = ?", [colId]);
+
+    autoSave();
+    renderBoard();
+  } catch (err) {
+    console.error('Delete column failed:', err);
+  }
 }
 
 // ========== COLUMN SELECT POPULATION ==========
@@ -1227,13 +1397,34 @@ function closeModal(id) {
   document.getElementById(id).classList.remove('active');
 }
 
-function closeTaskModal() { closeModal('taskModal'); }
-function closeDetailModal() { closeModal('detailModal'); }
+function closeTaskModal() {
+  const titleInput = document.getElementById('taskTitleInput');
+  if (!savingTask && titleInput && titleInput.value.trim()) {
+    if (!confirm('Discard unsaved changes?')) return;
+  }
+  closeModal('taskModal');
+}
 
-// Close modals on overlay click
+function closeDetailModal() {
+  if (savingDetails) return;
+  const detailTitle = document.getElementById('detailTitle');
+  const detailDesc = document.getElementById('detailDesc');
+  const hasContent = (detailTitle.value.trim() && detailTitle.value.trim() !== detailTitle.defaultValue) ||
+                     (detailDesc.innerHTML.trim() && detailDesc.innerHTML.trim() !== '<br>');
+  if (hasContent && !confirm('Discard unsaved changes?')) return;
+  closeModal('detailModal');
+}
+
+// Close modals on overlay click with unsaved check
 document.addEventListener('click', e => {
-  if (e.target.classList.contains('modal-overlay')) {
-    e.target.classList.remove('active');
+  const overlay = e.target.closest('.modal-overlay.active');
+  if (overlay) {
+    // Don't prompt when a save just completed — the close was already handled
+    if (savingTask || savingDetails) return;
+    const hasUnsaved = document.getElementById('taskTitleInput')?.value.trim() ||
+                       document.getElementById('detailTitle')?.value.trim();
+    if (hasUnsaved && !confirm('Discard unsaved changes?')) return;
+    overlay.classList.remove('active');
   }
 });
 
@@ -1290,11 +1481,24 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     toggleTheme();
   }
-  // Escape: close modals and comment editor
+  // Enter in task title input saves the task (instead of just adding a newline that does nothing here)
+  if (e.key === 'Enter' && !e.shiftKey) {
+    const titleInput = document.getElementById('taskTitleInput');
+    if (document.activeElement === titleInput) {
+      e.preventDefault();
+      saveTask();
+    }
+  }
   if (e.key === 'Escape') {
     document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
     document.querySelectorAll('.context-menu').forEach(m => m.remove());
     if (commentEditorOpen) cancelCommentEditor();
+    const searchBox = document.getElementById('searchBox');
+    if (document.activeElement === searchBox && searchBox.value) {
+      searchBox.value = '';
+      renderBoard();
+      showToast('Search cleared');
+    }
   }
 });
 
