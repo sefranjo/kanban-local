@@ -27,8 +27,8 @@
   --bg-secondary: #25282e;
   --bg-column: #34373e;
   --bg-card: #3c3f46;
-  --text-primary: #e4e6ea;
-  --text-secondary: #9ba3b0;
+  --text-primary: #e6eaef;
+  --text-secondary: #a8b0be;
   --border-color: #4a4d55;
   --accent: #5c9ce6;
   --accent-hover: #7db4f5;
@@ -119,10 +119,12 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .column-title {
-  font-size: 14px;
+  font-size: 15px;
+  letter-spacing: 0.3px;
   font-weight: 700;
   cursor: pointer;
   padding: 2px 4px;
@@ -165,18 +167,20 @@ body {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius);
-  padding: 10px 12px;
+  padding: 14px 16px;
   margin-bottom: 8px;
   cursor: grab;
   transition: box-shadow 0.2s, opacity 0.2s;
 }
 
-.card:hover { box-shadow: var(--shadow); }
+.card:hover {
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06), var(--shadow);
+}
 
 .card.dragging { opacity: 0.4; transform: rotate(3deg); pointer-events: none; }
 
-.card-title { font-size: 14px; line-height: 1.4; word-break: break-word; margin-bottom: 4px; }
-.card-description { font-size: 12px; color: var(--text-secondary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-bottom: 6px; }
+.card-title { font-size: 15px; line-height: 1.5; word-break: break-word; margin-bottom: 6px; }
+.card-description { font-size: 13px; line-height: 1.5; color: var(--text-secondary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-bottom: 8px; }
 
 .has-comments::after {
   content: '💬';
@@ -374,14 +378,14 @@ body {
 .comment-item {
   background: var(--bg-primary);
   border-radius: var(--radius);
-  padding: 12px;
+  padding: 14px;
 }
 
-.comment-body { font-size: 14px; margin-bottom: 6px; white-space: pre-wrap; word-break: break-word; }
+.comment-body { font-size: 14px; line-height: 1.5; margin-bottom: 6px; white-space: pre-wrap; word-break: break-word; }
 .comment-body ul, .comment-body ol { margin: 0.5em 0; padding-left: 1.8em; }
 .comment-body li { margin-bottom: 0.25em; }
 
-.comment-meta { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--text-secondary); }
+.comment-meta { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--text-secondary); }
 
 .comment-actions { display: flex; gap: 6px; }
 
@@ -417,6 +421,18 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
 
+mark.search-highlight {
+  background: #fef08a;
+  color: inherit;
+  padding: 1px 2px;
+  border-radius: 3px;
+}
+
+[data-theme="dark"] mark.search-highlight {
+  background: #ca8a04;
+  opacity: 0.7;
+}
+
 /* Hidden file inputs */
 .hidden-input { display: none; }
 
@@ -427,6 +443,11 @@ body {
   margin-bottom: 8px;
   min-height: 44px;
   border: 2px dashed var(--border-color);
+}
+
+[data-theme="dark"] .card-placeholder {
+  background: rgba(255,255,255,0.05);
+  border-color: #5c6170;
 }
 
 /* Toast */
@@ -864,7 +885,7 @@ function createColumnElement(col, filter = '') {
   }
 
   for (const task of tasks) {
-    body.appendChild(createCardElement(task, col.id, commentMap));
+    body.appendChild(createCardElement(task, col.id, commentMap, filter));
   }
 
   columnDiv.appendChild(body);
@@ -878,7 +899,7 @@ function createColumnElement(col, filter = '') {
   return columnDiv;
 }
 
-function createCardElement(task, colId, commentMap = {}) {
+function createCardElement(task, colId, commentMap = {}, search = '') {
   const div = document.createElement('div');
   let cardClass = 'card';
   div.draggable = true;
@@ -888,10 +909,14 @@ function createCardElement(task, colId, commentMap = {}) {
   if (commentMap[task.id] > 0) cardClass += ' has-comments';
   div.className = cardClass;
 
-  let html = `<div class="card-title">${escapeHtml(task.title)}</div>`;
+  let titleText = escapeHtml(task.title);
+  if (search) titleText = highlightSearch(task.title, search);
+  let html = `<div class="card-title">${titleText}</div>`;
   if (task.description) {
     const plainDesc = task.description.replace(/<[^>]*>/g, '');
-    html += `<div class="card-description" title="${escapeHtml(plainDesc)}">${escapeHtml(plainDesc)}</div>`;
+    let descText = escapeHtml(plainDesc);
+    if (search) descText = highlightSearch(plainDesc, search);
+    html += `<div class="card-description" title="${escapeHtml(plainDesc)}">${descText}</div>`;
   }
   html += `
     <div class="card-actions">
@@ -931,6 +956,13 @@ function mapRows(result) {
 function escapeHtml(str) {
   if (!str) return '';
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function highlightSearch(text, query) {
+  if (!query || !text) return escapeHtml(text);
+  const escaped = escapeHtml(text);
+  const regex = new RegExp('(' + query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+  return escaped.replace(regex, '<mark class="search-highlight">$1</mark>');
 }
 
 // ========== DRAG & DROP ==========
