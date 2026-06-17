@@ -533,6 +533,10 @@ body {
         </div>
         <div id="detailDesc" class="form-textarea contenteditable-editor" contenteditable="true"></div>
       </div>
+      <div class="modal-footer" style="padding:12px 0;">
+        <button class="btn btn-secondary" onclick="closeDetailModal()">Close</button>
+        <button class="btn btn-primary" onclick="saveTaskDetails()">Save Changes</button>
+      </div>
       <div class="comments-section">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
           <span class="comments-title">Comments</span>
@@ -557,10 +561,6 @@ body {
         <div class="comment-list" id="commentList"></div>
       </div>
     </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeDetailModal()">Close</button>
-      <button class="btn btn-primary" onclick="saveTaskDetails()">Save Changes</button>
-    </div>
   </div>
 </div>
 
@@ -576,6 +576,8 @@ let draggedCardId = null;
 let draggedFromColumn = null;
 let savingTask = false;
 let savingDetails = false;
+let _detailOrigTitle = '';
+let _detailOrigDesc = '';
 
 const DEFAULT_COLUMNS = [
   { id: 1, title: 'To Do', order: 0 },
@@ -1094,7 +1096,10 @@ function saveNewComment() {
   const taskId = parseInt(document.getElementById('detailTaskId').value);
   db.run("INSERT INTO comments (task_id, body) VALUES (?, ?)", [taskId, html]);
   autoSave();
-  cancelCommentEditor();
+  commentEditorOpen = false;
+  document.getElementById('commentInputArea').style.display = 'none';
+  document.getElementById('addCommentBtn').style.display = '';
+  editor.innerHTML = '';
   renderComments(taskId);
   showToast('Comment added!');
 }
@@ -1118,8 +1123,10 @@ function openDetail(taskId) {
     const task = mapRows(result[0])[0];
 
     document.getElementById('detailTaskId').value = task.id;
-    document.getElementById('detailTitle').value = task.title || '';
-    document.getElementById('detailDesc').innerHTML = task.description || '';
+    _detailOrigTitle = task.title || '';
+    document.getElementById('detailTitle').value = _detailOrigTitle;
+    _detailOrigDesc = task.description || '';
+    document.getElementById('detailDesc').innerHTML = _detailOrigDesc;
 
     loadComments(taskId);
 
@@ -1138,6 +1145,8 @@ function saveTaskDetails() {
 
   db.run("UPDATE tasks SET title = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [title, desc, taskId]);
   autoSave();
+  _detailOrigTitle = title;
+  _detailOrigDesc = desc;
   savingDetails = true;
   closeDetailModal();
   renderBoard();
@@ -1409,23 +1418,24 @@ function closeDetailModal() {
   if (savingDetails) return;
   const detailTitle = document.getElementById('detailTitle');
   const detailDesc = document.getElementById('detailDesc');
-  const hasContent = (detailTitle.value.trim() && detailTitle.value.trim() !== detailTitle.defaultValue) ||
-                     (detailDesc.innerHTML.trim() && detailDesc.innerHTML.trim() !== '<br>');
-  if (hasContent && !confirm('Discard unsaved changes?')) return;
+  const hasUnsaved = detailTitle.value.trim() !== _detailOrigTitle || detailDesc.innerHTML.trim() !== _detailOrigDesc;
+  if (hasUnsaved && !confirm('Discard unsaved changes?')) return;
   closeModal('detailModal');
 }
 
 // Close modals on overlay click with unsaved check
 document.addEventListener('click', e => {
-  const overlay = e.target.closest('.modal-overlay.active');
-  if (overlay) {
-    // Don't prompt when a save just completed — the close was already handled
-    if (savingTask || savingDetails) return;
-    const hasUnsaved = document.getElementById('taskTitleInput')?.value.trim() ||
-                       document.getElementById('detailTitle')?.value.trim();
-    if (hasUnsaved && !confirm('Discard unsaved changes?')) return;
-    overlay.classList.remove('active');
-  }
+  const target = e.target;
+  // Ignore clicks inside any interactive element or modal content
+  if (target.matches('input, textarea, button, select') || target.closest('.modal-body')) return;
+  const overlay = target.closest('.modal-overlay.active');
+  if (!overlay) return;
+  // Don't prompt when a save just completed — the close was already handled
+  if (savingTask || savingDetails) return;
+  const hasUnsaved = document.getElementById('detailTitle')?.value.trim() !== _detailOrigTitle ||
+                     document.getElementById('taskTitleInput')?.value.trim();
+  if (hasUnsaved && !confirm('Discard unsaved changes?')) return;
+  overlay.classList.remove('active');
 });
 
 // ========== THEME ==========
