@@ -224,6 +224,21 @@ body {
 
 .add-card-btn:hover { opacity: 0.7; }
 
+/* Labels */
+.card-labels { display: flex; gap: 5px; margin-bottom: 6px; flex-wrap: wrap; align-items: center; }
+.card-label { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 3px; letter-spacing: 0.2px; white-space: nowrap; cursor: pointer; transition: opacity 0.15s; }
+.card-label:hover { opacity: 0.8; }
+
+.label-picker-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; align-items: center; min-height: 32px; }
+.label-pick-btn { width: 26px; height: 26px; border-radius: 50%; border: 2.5px solid transparent; cursor: pointer; transition: transform 0.1s, border-color 0.15s; flex-shrink: 0; }
+.label-pick-btn:hover { transform: scale(1.15); }
+.label-pick-btn.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(92,156,230,0.25); }
+
+[aria-label="Labels"] .form-select { margin-top: 8px; padding-right: 40px; min-height: auto !important; height: 70px !important; font-size: 12px !important; resize: vertical; max-width: 100%; overflow-x: hidden; word-break: break-all; }
+
+#labelPickerArea { display: none; margin-bottom: 18px; }
+#labelPickerArea .form-label { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
+
 /* Modals */
 .modal-overlay {
   display: none;
@@ -433,6 +448,38 @@ mark.search-highlight {
   opacity: 0.7;
 }
 
+/* Label Manager */
+.label-manager-row {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  border: 1px solid var(--border-color); border-radius: var(--radius);
+  margin-bottom: 8px; background: var(--bg-primary); transition: box-shadow 0.2s;
+}
+.label-manager-row:hover { box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+.label-color-swatch {
+  width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--border-color);
+  flex-shrink: 0; cursor: pointer; padding: 0; overflow: hidden;
+}
+.label-color-swatch::-webkit-color-swatch-wrapper { padding: 0; }
+.label-color-swatch::-webkit-color-swatch { border: none; border-radius: 50%; }
+.label-color-swatch::-moz-color-swatch { border: none; border-radius: 50%; }
+.label-manager-inputs { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.label-name-input, .label-alias-input {
+  width: 100%; padding: 5px 8px; border: 1px solid var(--border-color);
+  border-radius: 4px; background: var(--bg-secondary); color: var(--text-primary);
+  font-size: 13px; font-family: inherit; outline: none;
+}
+.label-name-input:focus, .label-alias-input:focus { border-color: var(--accent); }
+.label-name-input::placeholder { color: var(--text-secondary); opacity: 0.6; }
+.label-alias-input::placeholder { color: var(--text-secondary); opacity: 0.5; font-size: 12px; }
+.label-delete-btn {
+  background: none; border: none; color: var(--text-secondary); cursor: pointer;
+  font-size: 16px; padding: 4px 8px; border-radius: 4px; flex-shrink: 0; transition: color 0.15s, background 0.15s;
+}
+.label-delete-btn:hover { color: var(--danger); background: rgba(235,90,70,0.1); }
+.add-label-row { display: flex; gap: 8px; margin-top: 4px; }
+.add-label-row .btn { flex-shrink: 0; }
+.label-count-badge { font-size: 12px; color: var(--text-secondary); margin-left: auto; padding-right: 4px; }
+
 /* Hidden file inputs */
 .hidden-input { display: none; }
 
@@ -498,6 +545,7 @@ mark.search-highlight {
     <input type="file" id="importFileInput" class="hidden-input" accept=".sqlite,.db" onchange="handleImport(event)">
     <button class="btn btn-secondary" onclick="showStorageInfo()" title="View storage usage">&#x267E;</button>
     <button class="btn btn-secondary" id="themeToggle" onclick="toggleTheme()" title="Toggle theme (Ctrl+T)">🌙</button>
+    <button class="btn btn-secondary" onclick="openLabelManager()" title="Manage labels">&#x1F3A8;</button>
   </div>
 </div>
 
@@ -524,6 +572,11 @@ mark.search-highlight {
       <div class="form-group">
         <label class="form-label">Column</label>
         <select id="taskColumnSelect" class="form-select"></select>
+      </div>
+      <div class="form-group" style="margin-bottom:6px;">
+        <label class="form-label" for="taskLabelPills">Labels</label>
+        <input type="hidden" id="taskCardLabels">
+        <div id="taskLabelPills" class="label-picker-row"></div>
       </div>
       <input type="hidden" id="addTaskParentId">
     </div>
@@ -552,17 +605,14 @@ mark.search-highlight {
         <label class="form-label">Type</label>
         <select id="detailTaskTypeSelect" class="form-select"></select>
       </div>
+      <div class="form-group" style="margin-bottom:18px;">
+        <label class="form-label" for="detailLabelPills">Labels</label>
+        <input type="hidden" id="detailCardLabels">
+        <div id="detailLabelPills" class="label-picker-row"></div>
+      </div>
       <div class="form-group">
         <label class="form-label">Description</label>
-        <div class="editor-toolbar">
-          <button type="button" onclick="execCmd('bold')" title="Bold"><b>B</b></button>
-          <button type="button" onclick="execCmd('italic')" title="Italic"><i>I</i></button>
-          <button type="button" onclick="execCmd('underline')" title="Underline"><u>U</u></button>
-          <button type="button" onclick="execCmd('strikeThrough')" title="Strikethrough"><s>S</s></button>
-          <button type="button" onclick="execCmd('insertUnorderedList')" title="Bullet list">• List</button>
-          <button type="button" onclick="execCmd('insertOrderedList')" title="Numbered list">1. List</button>
-          <button type="button" onclick="execCmd('formatBlock', 'pre')" title="Code block">&lt;/&gt;</button>
-        </div>
+        <div class="editor-toolbar"></div>
         <div id="detailDesc" class="form-textarea contenteditable-editor" contenteditable="true"></div>
       </div>
       <div class="modal-footer" style="padding:12px 0;">
@@ -576,15 +626,7 @@ mark.search-highlight {
           <button class="btn btn-primary" id="addCommentBtn" onclick="toggleCommentEditor()" style="padding:6px 12px;font-size:12px;">+ Add Comment</button>
         </div>
         <div id="commentInputArea" style="display:none;margin-bottom:14px;">
-          <div class="editor-toolbar">
-            <button type="button" onclick="execCmd('bold')" title="Bold"><b>B</b></button>
-            <button type="button" onclick="execCmd('italic')" title="Italic"><i>I</i></button>
-            <button type="button" onclick="execCmd('underline')" title="Underline"><u>U</u></button>
-            <button type="button" onclick="execCmd('strikeThrough')" title="Strikethrough"><s>S</s></button>
-            <button type="button" onclick="execCmd('insertUnorderedList')" title="Bullet list">• List</button>
-            <button type="button" onclick="execCmd('insertOrderedList')" title="Numbered list">1. List</button>
-            <button type="button" onclick="execCmd('formatBlock', 'pre')" title="Code block">&lt;/&gt;</button>
-          </div>
+          <div class="editor-toolbar"></div>
           <div id="newCommentText" class="form-textarea contenteditable-editor" contenteditable="true" data-placeholder="Write a comment..."></div>
           <div style="display:flex;gap:8px;margin-top:8px;">
             <button class="btn btn-primary" onclick="saveNewComment()" style="padding:6px 12px;font-size:12px;">Accept</button>
@@ -593,6 +635,24 @@ mark.search-highlight {
         </div>
         <div class="comment-list" id="commentList"></div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Label Manager Modal -->
+<div class="modal-overlay" id="labelManagerModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Manage Labels</h2>
+      <button class="modal-close" onclick="closeLabelManager()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;">Each label has a name (used internally), a display alias, and a color. Renaming or deleting a label will update all existing tasks that use it.</p>
+      <div id="labelManagerList"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeLabelManager()">Close</button>
+      <button class="btn btn-primary" onclick="saveLabelManager()">Save &amp; Update Tasks</button>
     </div>
   </div>
 </div>
@@ -611,6 +671,45 @@ let savingTask = false;
 let savingDetails = false;
 let _detailOrigTitle = '';
 let _detailOrigDesc = '';
+
+let LABEL_PRESETS = loadLabels() || [
+  { name: 'bug', color: '#eb5a46', alias: '' },
+  { name: 'feature', color: '#0079bf', alias: '' },
+  { name: 'improvement', color: '#28a745', alias: '' },
+  { name: 'documentation', color: '#c0392b', alias: '' },
+  { name: 'design', color: '#9b59b6', alias: '' },
+  { name: 'urgent', color: '#e74c3c', alias: '' },
+  { name: 'review', color: '#f39c12', alias: '' },
+  { name: 'testing', color: '#1abc9c', alias: '' }
+];
+
+var TOOLBAR_HTML = [
+  '<button type="button" onclick="execCmd(\'bold\')" title="Bold"><b>B</b></button>',
+  '<button type="button" onclick="execCmd(\'italic\')" title="Italic"><i>I</i></button>',
+  '<button type="button" onclick="execCmd(\'underline\')" title="Underline"><u>U</u></button>',
+  '<button type="button" onclick="execCmd(\'strikeThrough\')" title="Strikethrough"><s>S</s></button>',
+  '<button type="button" onclick="execCmd(\'insertUnorderedList\')" title="Bullet list">• List</button>',
+  '<button type="button" onclick="execCmd(\'insertOrderedList\')" title="Numbered list">1. List</button>',
+  '<button type="button" onclick="execCmd(\'formatBlock\', \'pre\')" title="Code block">&lt;/&gt;</button>'
+].join('');
+
+function loadLabels() {
+  try {
+    const raw = localStorage.getItem('kanban_labels');
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch(e) { return null; }
+}
+
+function saveLabelPrefs(presets) {
+  localStorage.setItem('kanban_labels', JSON.stringify(presets));
+}
+
+function seedLabelsIfMissing() {
+  if (localStorage.getItem('kanban_labels')) return;
+  const seeded = LABEL_PRESETS.map(l => ({ name: l.name, color: l.color }));
+  saveLabelPrefs(seeded);
+}
 
 const DEFAULT_COLUMNS = [
   { id: 1, title: 'To Do', order: 0 },
@@ -637,6 +736,7 @@ async function init() {
       db = new SQL.Database(buf);
       migrateColumns();
       migrateTaskSchema();
+      seedLabelsIfMissing();
       renderBoard();
       return;
     } catch (e) { /* ignore corrupted save */ }
@@ -664,6 +764,7 @@ function migrateTaskSchema() {
   try {
     try { db.run("ALTER TABLE tasks ADD COLUMN task_type TEXT DEFAULT 'task' CHECK(task_type IN ('epic', 'task'))"); } catch(e) {}
     try { db.run("ALTER TABLE tasks ADD COLUMN parent_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL"); } catch(e) {}
+    try { db.run("ALTER TABLE tasks ADD COLUMN card_labels TEXT DEFAULT ''"); } catch(e) {}
     db.run("UPDATE tasks SET task_type = COALESCE(task_type, 'task') WHERE task_type NOT IN ('epic', 'task')");
     autoSave();
   } catch (e) { console.error('Task schema migration failed:', e); }
@@ -673,7 +774,7 @@ function initNewDB() {
   db = new SQL.Database();
   try {
     db.run("CREATE TABLE columns (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0)");
-    db.run("CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, column_id INTEGER NOT NULL REFERENCES columns(id), title TEXT NOT NULL, description TEXT DEFAULT '', task_type TEXT DEFAULT 'task' CHECK(task_type IN ('epic', 'task')), parent_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL, sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
+    db.run("CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, column_id INTEGER NOT NULL REFERENCES columns(id), title TEXT NOT NULL, description TEXT DEFAULT '', task_type TEXT DEFAULT 'task' CHECK(task_type IN ('epic', 'task')), parent_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL, card_labels TEXT DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
     db.run("CREATE TABLE comments (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, body TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
 
     // Seed default columns using direct SQL to avoid parameter binding issues
@@ -683,6 +784,7 @@ function initNewDB() {
     db.run("INSERT INTO columns (id, title, sort_order) VALUES (4, 'Done', 3)");
 
     autoSave();
+    seedLabelsIfMissing();
     renderBoard();
   } catch (e) {
     console.error('initNewDB failed:', e);
@@ -806,6 +908,7 @@ function exportDatabase() {
 }
 
 function importDatabase() {
+  if (!confirm('This will replace your current browser database with the imported file. Continue?')) return;
   document.getElementById('importFileInput').click();
 }
 
@@ -820,7 +923,8 @@ function handleImport(event) {
       db = new SQL.Database(buf);
       migrateColumns();
       migrateTaskSchema();
-      localStorage.removeItem('kanban_db');
+      seedLabelsIfMissing();
+      autoSave();
       renderBoard();
       showToast('Database loaded!');
     } catch (err) {
@@ -878,7 +982,8 @@ function createColumnElement(col, filter = '') {
 
   const titleEditable = document.createElement('span');
   titleEditable.className = 'column-title';
-  titleEditable.innerHTML = col.title + '<span class="column-count"> (' + totalTaskCount + ')</span>';
+  const visibleCount = filter ? tasks.length : totalTaskCount;
+  titleEditable.innerHTML = escapeHtml(col.title) + '<span class="column-count"> (' + visibleCount + ')</span>';
   titleEditable.onclick = () => renameColumn(col.id);
 
   columnDiv.innerHTML = `
@@ -952,7 +1057,8 @@ function createCardElement(task, colId, commentMap = {}, search = '') {
     displayTitle = escapedTitle.replace(regex, '<mark class="search-highlight">$1</mark>');
   }
 
-  let html = `<div class="card-title">${typeIcon}${linkedIcons}${displayTitle}</div>`;
+  let html = renderCardLabels(task.card_labels || '', search);
+    html += `<div class="card-title">${typeIcon}${linkedIcons}${displayTitle}</div>`;
   if (task.description) {
     const plainDesc = task.description.replace(/<[^>]*>/g, '');
     let descText = escapeHtml(plainDesc);
@@ -1000,6 +1106,98 @@ function escapeHtml(str) {
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function sanitizeHtml(html) {
+  if (!html) return '';
+  // Remove script tags (including unclosed <script...)
+  html = html.replace(/<script\b[^<]*(?:(?!<\/script>)<)*<\/script>/gi, '');
+  html = html.replace(/<script\b[^>]*/gi, '');
+  // Remove event handler attributes: onclick, onerror, onload, onmouseover, etc.
+  html = html.replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+  // Remove javascript: protocol from href/src/action/anything=
+  html = html.replace(/(href|src|action)\s*=\s*["']?\s*javascript:/gi, '$1="invalid"');
+  return html;
+}
+
+function getLabelColor(name) {
+  const preset = LABEL_PRESETS.find(l => l.name === name);
+  return preset ? preset.color : '#95a5a6';
+}
+
+function getLabelDisplayName(name) {
+  const preset = LABEL_PRESETS.find(l => l.name === name);
+  if (!preset) return name.charAt(0).toUpperCase() + name.slice(1);
+  return preset.alias && preset.alias.trim() ? preset.alias : name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+function renderCardLabels(labelsStr, searchQuery) {
+  if (!labelsStr || !labelsStr.trim()) return '';
+  const labels = labelsStr.split(',').map(s => s.trim()).filter(Boolean);
+  let html = '<div class="card-labels">';
+  for (const name of labels) {
+    const color = getLabelColor(name);
+    const displayName = getLabelDisplayName(name);
+    const searchMatch = searchQuery && (displayName.toLowerCase().includes(searchQuery) || name.toLowerCase().includes(searchQuery));
+    if (searchMatch) {
+      const regex = new RegExp('(' + searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+      html += '<span class="card-label" style="background:' + color + ';color:#fff;" title="' + escapeHtml(name) + '">' + displayName.replace(regex, '<mark class="search-highlight">$1</mark>') + '</span>';
+    } else {
+      html += '<span class="card-label" style="background:' + color + ';color:#fff;" title="' + escapeHtml(name) + '">' + displayName + '</span>';
+    }
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderLabelPicker(containerId, inputId, selectedLabelsStr) {
+  const container = document.getElementById(containerId);
+  if (!container || !LABEL_PRESETS.length) return '';
+  const selected = (selectedLabelsStr || '').split(',').map(s => s.trim()).filter(Boolean);
+  let html = '';
+  for (const preset of LABEL_PRESETS) {
+    const isSelected = selected.includes(preset.name);
+    html += '<button type="button" class="label-pick-btn' + (isSelected ? ' selected' : '') + '" style="background:' + preset.color + ';color:#fff;" data-label="' + preset.name + '" title="' + getLabelDisplayName(preset.name) + '"' + (isSelected ? ' aria-pressed="true"' : '') + '></button>';
+  }
+  container.innerHTML = html;
+
+  for (const btn of container.querySelectorAll('.label-pick-btn')) {
+    const name = btn.dataset.label;
+    const isSelected = selected.includes(name);
+    if (isSelected) {
+      btn.classList.add('selected');
+      btn.setAttribute('aria-pressed', 'true');
+    } else {
+      btn.classList.remove('selected');
+      btn.removeAttribute('aria-pressed');
+    }
+
+    // Click handler to toggle label on/off
+    (function(btnEl, lbl) {
+      btnEl.onclick = function(e) {
+        e.stopPropagation();
+        const inp = document.getElementById(inputId);
+        if (!inp) return;
+        const currentSel = inp.value || '';
+        let labels = currentSel.split(',').map(s => s.trim()).filter(Boolean);
+        if (labels.includes(lbl)) {
+          labels = labels.filter(l => l !== lbl);
+          btnEl.classList.remove('selected');
+          btnEl.removeAttribute('aria-pressed');
+        } else {
+          labels.push(lbl);
+          btnEl.classList.add('selected');
+          btnEl.setAttribute('aria-pressed', 'true');
+        }
+        inp.value = labels.join(', ');
+      };
+    })(btn, name);
+  }
+}
+
+function clearLabelPicker(containerId) {
+  const container = document.getElementById(containerId);
+  if (container) container.innerHTML = '';
+}
+
 function highlightSearch(text, query) {
   if (!query || !text) return escapeHtml(text);
   const escaped = escapeHtml(text);
@@ -1042,7 +1240,7 @@ function handleDrop(e, targetColumnId) {
         const targetMid = (targetRect.top - bodyRect.top) + targetRect.height / 2;
         if (e.clientY - bodyRect.top > targetMid) {
           // Drop after target card
-          newSortOrder = targetTask.sort_order;
+          newSortOrder = targetTask.sort_order + 0.5;
         } else {
           // Drop before target card
           newSortOrder = targetTask.sort_order - 0.5;
@@ -1070,11 +1268,25 @@ function handleDrop(e, targetColumnId) {
   }
 }
 
+function deleteTaskCascade(taskId) {
+  try {
+    db.run("DELETE FROM comments WHERE task_id = ?", [taskId]);
+    const kids = db.exec("SELECT id FROM tasks WHERE parent_id = ?", [taskId]);
+    if (kids.length > 0) {
+      for (const k of mapRows(kids[0])) {
+        deleteTaskCascade(k.id);
+      }
+    }
+    db.run("DELETE FROM tasks WHERE id = ?", [taskId]);
+  } catch(e) {}
+}
+
 // ========== TASK CRUD ==========
 function openAddTask(columnId, parentId) {
   document.getElementById('taskModalTitle').textContent = 'New Task';
   document.getElementById('taskId').value = '';
   document.getElementById('taskTitleInput').value = '';
+  document.getElementById('taskCardLabels').value = '';
   populateTypeSelect('task');
   populateColumnSelect();
 
@@ -1085,6 +1297,7 @@ function openAddTask(columnId, parentId) {
 
   // Set parent_id from caller (for "add child" flow)
   document.getElementById('addTaskParentId').value = parentId || '';
+  renderLabelPicker('taskLabelPills', 'taskCardLabels', '');
 
   document.getElementById('deleteTaskBtn').style.display = 'none';
   openModal('taskModal');
@@ -1097,19 +1310,21 @@ function saveTask() {
   const colId = parseInt(document.getElementById('taskColumnSelect').value);
   const taskType = document.getElementById('taskTypeSelect').value || 'task';
 
+  const labels = (document.getElementById('taskCardLabels').value || '').split(',').map(s => s.trim()).filter(Boolean).join(',');
+
   if (!title) { showToast('Title is required.'); return; }
 
   try {
     if (id) {
-      db.run("UPDATE tasks SET title = ?, column_id = ?, task_type = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [title, colId, taskType, parseInt(id)]);
+      db.run("UPDATE tasks SET title = ?, column_id = ?, task_type = ?, card_labels = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [title, colId, taskType, labels, parseInt(id)]);
     } else {
       const parentId = document.getElementById('addTaskParentId').value;
       const maxOrder = db.exec("SELECT COALESCE(MAX(sort_order), -1) AS m FROM tasks WHERE column_id = ?", [colId]);
       const nextOrder = (maxOrder[0] ? maxOrder[0].values[0][0] : 0) + 1;
       if (parentId && parseInt(parentId)) {
-        db.run('INSERT INTO tasks (column_id, title, task_type, parent_id, sort_order) VALUES (?, ?, ?, ?, ?)', [colId, title, taskType, parseInt(parentId), nextOrder]);
+        db.run('INSERT INTO tasks (column_id, title, task_type, parent_id, card_labels, sort_order) VALUES (?, ?, ?, ?, ?, ?)', [colId, title, taskType, parseInt(parentId), labels, nextOrder]);
       } else {
-        db.run('INSERT INTO tasks (column_id, title, task_type, sort_order) VALUES (?, ?, ?, ?)', [colId, title, taskType, nextOrder]);
+        db.run('INSERT INTO tasks (column_id, title, task_type, card_labels, sort_order) VALUES (?, ?, ?, ?, ?)', [colId, title, taskType, labels, nextOrder]);
       }
     }
 
@@ -1130,21 +1345,13 @@ function deleteTaskFromModal() {
   const id = document.getElementById('taskId').value;
   if (!id || !confirm('Delete this task?')) return;
 
-  // Cascade: delete child comments and tasks first
+  // Cascade: delete child comments and all descendants recursively
   try {
     const childrenResult = db.exec("SELECT id FROM tasks WHERE parent_id = ?", [parseInt(id)]);
     if (childrenResult.length > 0) {
       const children = mapRows(childrenResult[0]);
       for (const child of children) {
-        db.run("DELETE FROM comments WHERE task_id = ?", [child.id]);
-        // Recursively delete grandchildren
-        const grandkids = db.exec("SELECT id FROM tasks WHERE parent_id = ?", [child.id]);
-        if (grandkids.length > 0) {
-          for (const gk of mapRows(grandkids[0])) {
-            db.run("DELETE FROM comments WHERE task_id = ?", [gk.id]);
-            db.run("DELETE FROM tasks WHERE id = ?", [gk.id]);
-          }
-        }
+        deleteTaskCascade(child.id);
       }
     }
   } catch(e) {}
@@ -1159,21 +1366,13 @@ function deleteTaskFromModal() {
 function quickDelete(taskId) {
   if (!confirm('Delete this task?')) return;
 
-  // Cascade: delete child comments and tasks first
+  // Cascade: delete child comments and all descendants recursively
   try {
     const childrenResult = db.exec("SELECT id FROM tasks WHERE parent_id = ?", [taskId]);
     if (childrenResult.length > 0) {
       const children = mapRows(childrenResult[0]);
       for (const child of children) {
-        db.run("DELETE FROM comments WHERE task_id = ?", [child.id]);
-        // Recursively delete grandchildren
-        const grandkids = db.exec("SELECT id FROM tasks WHERE parent_id = ?", [child.id]);
-        if (grandkids.length > 0) {
-          for (const gk of mapRows(grandkids[0])) {
-            db.run("DELETE FROM comments WHERE task_id = ?", [gk.id]);
-            db.run("DELETE FROM tasks WHERE id = ?", [gk.id]);
-          }
-        }
+        deleteTaskCascade(child.id);
       }
     }
   } catch(e) {}
@@ -1264,6 +1463,9 @@ function openDetail(taskId) {
     });
     _detailOrigDesc = task.description || '';
     document.getElementById('detailDesc').innerHTML = _detailOrigDesc;
+    // Set label picker for detail modal
+    document.getElementById('detailCardLabels').value = task.card_labels || '';
+    renderLabelPicker('detailLabelPills', 'detailCardLabels', task.card_labels);
 
     loadComments(taskId);
     renderLinkedTasks(task);
@@ -1281,7 +1483,9 @@ function saveTaskDetails() {
   const plainText = desc.replace(/<[^>]*>/g, '');
   if (!title) { showToast('Title is required.'); return; }
 
-  db.run("UPDATE tasks SET title = ?, description = ?, task_type = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [title, desc, document.getElementById('detailTaskTypeSelect').value || 'task', taskId]);
+  const labels = (document.getElementById('detailCardLabels').value || '').split(',').map(s => s.trim()).filter(Boolean).join(',');
+
+  db.run("UPDATE tasks SET title = ?, description = ?, task_type = ?, card_labels = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [title, desc, document.getElementById('detailTaskTypeSelect').value || 'task', labels, taskId]);
   autoSave();
   _detailOrigTitle = title;
   _detailOrigDesc = desc;
@@ -1315,24 +1519,31 @@ function renderLinkedTasks(task) {
       <button class="card-action-btn" onclick="unlinkParentTask()" title="Remove parent">&times;</button>
     </div>`;
   } else {
-    // Show dropdown to select parent (all tasks except this one and its children)
+    // Show dropdown to select parent (all tasks except this one and its descendants)
     html += '<div style="margin-bottom:10px;font-size:13px;display:flex;align-items:center;gap:6px;">';
     html += '<span style="color:var(--text-secondary);">Parent:</span>';
     try {
       const allResult = db.exec("SELECT id, title FROM tasks WHERE id != ?", [task.id]);
       if (allResult.length > 0) {
-        let childrenIds = '';
-        try {
-          const childResult = db.exec("SELECT id FROM tasks WHERE parent_id = ?", [task.id]);
-          if (childResult.length > 0) childrenIds = mapRows(childResult[0]).map(c => c.id).join(',');
-        } catch(e) {}
+        // Collect all descendant IDs to prevent circular references
+        let excludeIds = ',' + task.id + ',';
+        (function collectDescendants(parentId) {
+          try {
+            const res = db.exec("SELECT id FROM tasks WHERE parent_id = ?", [parentId]);
+            if (res.length > 0) {
+              for (const c of mapRows(res[0])) {
+                excludeIds += c.id + ',';
+                collectDescendants(c.id);
+              }
+            }
+          } catch(e) {}
+        })(task.id);
+
         html += `<select id="parentTaskSelect" style="flex:1;padding:4px 6px;border:1px solid var(--border-color);border-radius:var(--radius);background:var(--bg-primary);color:var(--text-primary);font-size:12px;" onchange="setParentTask(this.value)">`;
         html += '<option value="">None</option>';
         const allTasks = mapRows(allResult[0]);
         for (const t of allTasks) {
-          // Skip if this task is a child of itself (circular) or already a parent of current task
-          const excludeChildrenIds = childrenIds ? ',' + childrenIds + ',' : '';
-          if (!excludeChildrenIds.includes(',' + t.id + ',')) {
+          if (!excludeIds.includes(',' + t.id + ',')) {
             html += '<option value="' + t.id + '">' + escapeHtml(t.title).slice(0, 50) + '</option>';
           }
         }
@@ -1431,18 +1642,10 @@ function loadComments(taskId) {
       let bodyHtml = '';
       if (c._editing) {
         bodyHtml = `
-          <div class="editor-toolbar">
-            <button type="button" onclick="execCmd('bold')" title="Bold"><b>B</b></button>
-            <button type="button" onclick="execCmd('italic')" title="Italic"><i>I</i></button>
-            <button type="button" onclick="execCmd('underline')" title="Underline"><u>U</u></button>
-            <button type="button" onclick="execCmd('strikeThrough')" title="Strikethrough"><s>S</s></button>
-            <button type="button" onclick="execCmd('insertUnorderedList')" title="Bullet list">• List</button>
-            <button type="button" onclick="execCmd('insertOrderedList')" title="Numbered list">1. List</button>
-            <button type="button" onclick="execCmd('formatBlock', 'pre')" title="Code block">&lt;/&gt;</button>
-          </div>
+          <div class="editor-toolbar"></div>
           <div class="form-textarea contenteditable-editor" id="editCommentText" contenteditable="true" style="min-height:60px;max-height:200px;overflow-y:auto;">${c.body}</div>`;
       } else {
-        bodyHtml = '<div class="comment-body">' + c.body + '</div>';
+        bodyHtml = '<div class="comment-body">' + sanitizeHtml(c.body) + '</div>';
       }
 
       div.innerHTML = `
@@ -1516,18 +1719,10 @@ function loadCommentsWithEditFlag(taskId, editId) {
       let bodyHtml;
       if (c._editing) {
         bodyHtml = `
-          <div class="editor-toolbar">
-            <button type="button" onclick="execCmd('bold')" title="Bold"><b>B</b></button>
-            <button type="button" onclick="execCmd('italic')" title="Italic"><i>I</i></button>
-            <button type="button" onclick="execCmd('underline')" title="Underline"><u>U</u></button>
-            <button type="button" onclick="execCmd('strikeThrough')" title="Strikethrough"><s>S</s></button>
-            <button type="button" onclick="execCmd('insertUnorderedList')" title="Bullet list">• List</button>
-            <button type="button" onclick="execCmd('insertOrderedList')" title="Numbered list">1. List</button>
-            <button type="button" onclick="execCmd('formatBlock', 'pre')" title="Code block">&lt;/&gt;</button>
-          </div>
+          <div class="editor-toolbar"></div>
           <div class="form-textarea contenteditable-editor" id="editCommentText" contenteditable="true" style="min-height:60px;max-height:200px;overflow-y:auto;">${c.body}</div>`;
       } else {
-        bodyHtml = '<div class="comment-body">' + c.body + '</div>';
+        bodyHtml = '<div class="comment-body">' + sanitizeHtml(c.body) + '</div>';
       }
 
       div.innerHTML = `
@@ -1584,10 +1779,22 @@ function showColumnMenu(e, colId) {
 
   document.body.appendChild(menu);
 
-  // Position
+  // Position with viewport boundary check
   const rect = e.target.getBoundingClientRect();
-  menu.style.top = (rect.bottom + 4) + 'px';
-  menu.style.right = (window.innerWidth - rect.right) + 'px';
+  let top = rect.bottom + 4;
+  let left = rect.left;
+  requestAnimationFrame(() => {
+    const menuRect = menu.getBoundingClientRect();
+    if (top + menuRect.height > window.innerHeight) {
+      top = rect.top - menuRect.height - 4;
+    }
+    if (left + menuRect.width > window.innerWidth) {
+      left = window.innerWidth - menuRect.width - 8;
+    }
+    menu.style.top = top + 'px';
+    menu.style.left = left + 'px';
+    menu.style.right = '';
+  });
 
   function closeMenu() {
     menu.remove();
@@ -1656,6 +1863,211 @@ function deleteColumn(colId) {
     renderBoard();
   } catch (err) {
     console.error('Delete column failed:', err);
+  }
+}
+
+// ========== LABEL MANAGER ==========
+let _labelManagerEditingIndex = -1;
+
+function openLabelManager() {
+  renderLabelManagerList();
+  openModal('labelManagerModal');
+}
+
+function closeLabelManager() {
+  closeModal('labelManagerModal');
+  _labelManagerEditingIndex = -1;
+}
+
+function renderLabelManagerList() {
+  const container = document.getElementById('labelManagerList');
+  if (!container) return;
+  let html = '<div id="lmLabelsContainer">';
+  for (let i = 0; i < LABEL_PRESETS.length; i++) {
+    const l = LABEL_PRESETS[i];
+    const displayName = getLabelDisplayName(l.name);
+    html += '<div class="label-manager-row" data-index="' + i + '">' +
+      '<input type="color" class="label-color-swatch" value="' + escapeHtml(l.color) + '" onchange="onLabelManagerColorChange(this, ' + i + ')" title="Pick color">' +
+      '<div class="label-manager-inputs">' +
+        '<input type="text" class="label-name-input" id="lmName_' + i + '" value="' + escapeHtml(l.name) + '" placeholder="label-name" onchange="onLabelManagerNameChange(' + i + ')">' +
+        '<input type="text" class="label-alias-input" id="lmAlias_' + i + '" value="' + escapeHtml(l.alias || '') + '" placeholder="Display name (optional)" onchange="onLabelManagerAliasChange(' + i + ')" onkeydown="if(event.key===\'Enter\')this.blur()">' +
+      '</div>' +
+      '<button type="button" class="label-delete-btn" onclick="onLabelManagerDelete(' + i + ')" title="Remove label">&times;</button>' +
+    '</div>';
+  }
+  html += '</div>' +
+    '<div class="add-label-row">' +
+      '<input type="text" id="lmNewName" class="form-input" placeholder="New label name (e.g. spike)" style="margin:0;flex:1;" onkeydown="if(event.key===\'Enter\')event.preventDefault()">' +
+      '<input type="color" id="lmNewColor" value="#8b5cf6" title="Pick color" style="width:42px;height:37px;border:1px solid var(--border-color);border-radius:var(--radius);background:var(--bg-primary);cursor:pointer;padding:2px;">' +
+      '<button type="button" class="btn btn-secondary" onclick="onLabelManagerAdd()">+ Add</button>' +
+    '</div>' +
+    '<span class="label-count-badge">' + LABEL_PRESETS.length + ' label(s)</span>';
+  container.innerHTML = html;
+}
+
+function onLabelManagerColorChange(input, index) {
+  LABEL_PRESETS[index].color = input.value;
+}
+
+function onLabelManagerNameChange(index) {
+  const newName = document.getElementById('lmName_' + index).value.trim().toLowerCase();
+  if (!newName) return;
+  const oldName = LABEL_PRESETS[index].name;
+  if (oldName !== newName && !isValidLabelName(newName)) {
+    renderLabelManagerList();
+    showToast('Label name must start with a letter, use only letters/numbers/hyphens.');
+    return;
+  }
+  LABEL_PRESETS[index].name = newName;
+}
+
+function onLabelManagerAliasChange(index) {
+  LABEL_PRESETS[index].alias = document.getElementById('lmAlias_' + index).value.trim();
+}
+
+function isValidLabelName(name) {
+  return /^[a-z][a-z0-9-]*$/.test(name);
+}
+
+function onLabelManagerDelete(index) {
+  const labelName = LABEL_PRESETS[index].name;
+  if (!confirm('Remove the "' + getLabelDisplayName(labelName) + '" label? Tasks using this label will have it removed.')) return;
+  LABEL_PRESETS.splice(index, 1);
+  syncLabelsToDb();
+  saveLabelPrefs(LABEL_PRESETS);
+  renderLabelManagerList();
+}
+
+function onLabelManagerAdd() {
+  const nameInput = document.getElementById('lmNewName');
+  const colorInput = document.getElementById('lmNewColor');
+  let newName = (nameInput.value || '').trim().toLowerCase();
+  if (!newName) { showToast('Enter a label name.'); return; }
+  if (!/^[a-z][a-z0-9-]*$/.test(newName)) {
+    showToast('Label name must start with a letter and contain only letters, numbers, or hyphens.');
+    return;
+  }
+  if (!/^[a-z]/.test(newName)) { showToast('Label name must start with a letter.'); return; }
+  if (LABEL_PRESETS.find(l => l.name === newName)) { showToast('A label with that name already exists.'); return; }
+
+  LABEL_PRESETS.push({ name: newName, color: colorInput.value || '#8b5cf6', alias: '' });
+  syncLabelsToDb();
+  saveLabelPrefs(LABEL_PRESETS);
+  renderLabelManagerList();
+}
+
+function saveLabelManager() {
+  // Validate all names
+  const seen = new Set();
+  for (const l of LABEL_PRESETS) {
+    if (!/^[a-z][a-z0-9-]*$/.test(l.name)) {
+      showToast('Invalid label name: "' + l.name + '". Must start with a letter, letters/numbers/hyphens only.');
+      renderLabelManagerList();
+      return;
+    }
+    if (seen.has(l.name) && !l.alias.trim()) {
+      showToast('Duplicate label names are not allowed without an alias.');
+      renderLabelManagerList();
+      return;
+    }
+    seen.add(l.name);
+  }
+
+  syncLabelsToDb();
+  closeLabelManager();
+  renderBoard();
+  showToast('Labels saved and tasks updated.');
+}
+
+function syncLabelsToDb() {
+  if (!db) return;
+  try {
+    const stored = loadLabels();
+    if (!stored || !stored.length) { saveLabelPrefs(LABEL_PRESETS); return; }
+
+    // Detect changes between stored and current label presets.
+    // Challenge: deletions cause subsequent items to shift indices, which can look like renames.
+    // Heuristic for structural shifts: when old name vanished from its index but a DIFFERENT entry
+    // at that same CURRENT index has the SAME color — items shifted down because something above was deleted.
+
+    const renameMap = {};
+    for (let i = 0; i < Math.min(stored.length, LABEL_PRESETS.length); i++) {
+      if (stored[i].name === LABEL_PRESETS[i].name) continue; // no change at this position
+      const oldName = stored[i].name;
+
+      // Only check when the old name truly vanished from the entire current set
+      if (LABEL_PRESETS.find(p => p.name === oldName)) continue;
+
+      // Check: does another item in CURRENT share the same color as stored[i]?
+      // If yes → this item likely just shifted down after a deletion above it. Skip.
+      const otherEntries = LABEL_PRESETS.filter(
+        (p, idx) => idx !== i && p.color === stored[i].color
+      );
+      if (otherEntries.length > 0) {
+        continue; // structural shift from earlier deletion
+      }
+
+      renameMap[oldName] = LABEL_PRESETS[i].name; // genuine rename attempt
+    }
+
+    // Labels genuinely removed (exist in stored but nowhere in current)
+    const deletedLabels = [];
+    for (const item of stored) {
+      if (!LABEL_PRESETS.find(p => p.name === item.name)) {
+        deletedLabels.push(item.name);
+      }
+    }
+
+    // New items beyond stored length (additions or re-added old names).
+    // Mark them with null to avoid trying to find an old-name match.
+    for (let i = stored.length; i < LABEL_PRESETS.length; i++) {
+      const curName = LABEL_PRESETS[i].name;
+      if (!renameMap[curName]) {
+        renameMap[curName] = null; // not a rename of anything existing
+      }
+    }
+
+    // Update task card_labels in DB
+    const tasks = db.exec("SELECT id, card_labels FROM tasks WHERE card_labels IS NOT NULL AND card_labels != ''");
+    if (tasks.length === 0) { saveLabelPrefs(LABEL_PRESETS); return; }
+
+    let updatedCount = 0;
+    for (const row of tasks[0].values) {
+      const taskId = row[0];
+      const labelsStr = typeof row[1] === 'string' ? row[1] : '';
+      if (!labelsStr.trim()) continue;
+      let newLabels = labelsStr.split(',').map(s => s.trim()).filter(Boolean);
+
+      // Apply renames (oldName -> newName)
+      for (const [oldName, newName] of Object.entries(renameMap)) {
+        const idx = newLabels.indexOf(oldName);
+        if (idx !== -1 && newName) {
+          newLabels[idx] = newName;
+        }
+      }
+
+      // Remove deleted labels
+      for (const del of deletedLabels) {
+        newLabels = newLabels.filter(l => l !== del);
+      }
+
+      const newStr = newLabels.join(', ');
+      if (newStr !== labelsStr) {
+        db.run("UPDATE tasks SET card_labels = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [newStr, taskId]);
+        updatedCount++;
+      }
+    }
+
+    saveLabelPrefs(LABEL_PRESETS);
+
+    if (updatedCount > 0) {
+      console.log('Updated ' + updatedCount + ' task label references.');
+    } else {
+      console.log('Labels synced to DB. Task cards will reflect changes on re-render.');
+    }
+  } catch(e) {
+    console.error('syncLabelsToDb error:', e);
+    saveLabelPrefs(LABEL_PRESETS);
   }
 }
 
@@ -1769,6 +2181,8 @@ document.addEventListener('DOMContentLoaded', () => {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => renderBoard(), 250);
   });
+  // Populate all editor toolbars from the shared constant
+  document.querySelectorAll('.editor-toolbar').forEach(function(tb) { tb.innerHTML = TOOLBAR_HTML; });
 });
 
 // ========== KEYBOARD SHORTCUTS ==========
@@ -1799,7 +2213,6 @@ document.addEventListener('keydown', e => {
     if (document.activeElement === searchBox && searchBox.value) {
       searchBox.value = '';
       renderBoard();
-      showToast('Search cleared');
     }
   }
 });

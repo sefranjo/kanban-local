@@ -47,7 +47,7 @@ pkill -f "python3 -m http.server"
 ## Project Structure
 
 ```
-index.html          # Entire application (~1804 lines): HTML + CSS + JS
+index.html          # Entire application (~2224 lines): HTML + CSS + JS
 server.js           # Minimal Node.js HTTP server (WASM requires HTTP protocol)
 start.sh            # Launcher with portable path detection and nohup backgrounding
 assets/sql-wasm.js  # sql.js WASM loader (~50KB)
@@ -74,7 +74,7 @@ assets/sql-wasm.wasm # SQLite WebAssembly binary (~650KB)
 
 - No undo buffer — every edit is immediately committed. Export `.sqlite` to preserve state.
 - Column renaming uses native `prompt()` dialog; no inline editing.
-- No card color labels or tags support.
+- Labels are predefined presets with customizable colors and display names.
 - Search does not auto-clear — must press Escape manually.
 
 ## Development Notes
