@@ -34,7 +34,7 @@ pkill -f "server.js"    # stop the backgrounded launcher (or pkill -f "python3")
 
 `#detailDesc` (task description) and `#newCommentText` (comment input) are `contenteditable` divs sharing a toolbar via `execCmd()`. The function scans `.contenteditable-editor` elements for active focus, runs execCommand, then restores focus. Rich text HTML is stored in SQLite TEXT; card previews escape it and strip tags for plain-text display.
 
-Comment editor state is gated by the `commentEditorOpen` flag; Escape cancels an open comment editor (with unsaved-content confirmation). Comments are edited via a `<textarea>` but displayed as rich HTML. Comment editing uses a DOM marker element (`#_editingComment_N`) to track which comment is being edited, rather than keeping edit state in memory.
+Comment editor state is gated by the `commentEditorOpen` flag; Escape cancels an open comment editor (with unsaved-content confirmation). Comments are edited in a `<div contenteditable="true">` with toolbar buttons (bold, italic, underline, strikethrough, lists, code block) and displayed as rich HTML. Comment editing uses a DOM marker element (`#_editingComment_N`) to track which comment is being edited, rather than keeping edit state in memory.
 
 ## Task Types & Linking
 

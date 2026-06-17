@@ -7,7 +7,7 @@ An offline-only Kanban board that runs entirely in the browser with SQLite via W
 - **Drag-and-drop** cards between columns using native HTML5 API
 - **Task types** — create Epic tasks (for projects) or regular Tasks. Epics display a 📁 badge with child count on the card
 - **Parent/child linking** — any task can be linked as a child of another. Detail modal shows a "Linked Tasks" section for managing hierarchy with circular-reference prevention
-- **Rich text editing** for task descriptions and comments (bold, italic, lists, code blocks)
+- **Rich text editing** for task descriptions and comments (bold, italic, underline, strikethrough, lists, code blocks)
 - **Persistent storage** — database saved to localStorage as base64, with import/export via `.sqlite` files
 - **Dark/light theme** toggle (`Ctrl+T` / `Cmd+T`)
 - **Search** across all cards with debounced filtering (`Ctrl+K` / `Cmd+K`)
@@ -74,7 +74,6 @@ assets/sql-wasm.wasm # SQLite WebAssembly binary (~650KB)
 
 - No undo buffer — every edit is immediately committed. Export `.sqlite` to preserve state.
 - Column renaming uses native `prompt()` dialog; no inline editing.
-- Comments cannot be edited with rich text (plain textarea only), though they display rich HTML.
 - No card color labels or tags support.
 - Search does not auto-clear — must press Escape manually.
 
