@@ -1,0 +1,1305 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kanban Board</title>
+
+<style>
+:root {
+  --bg-primary: #f5f7fa;
+  --bg-secondary: #ffffff;
+  --bg-column: #ebecf0;
+  --bg-card: #ffffff;
+  --text-primary: #172b4d;
+  --text-secondary: #5e6c84;
+  --border-color: #dddfe2;
+  --accent: #0079bf;
+  --accent-hover: #026aa7;
+  --danger: #eb5a46;
+  --shadow: 0 1px 3px rgba(0,0,0,0.12);
+  --radius: 8px;
+  --col-width: 300px;
+}
+
+[data-theme="dark"] {
+  --bg-primary: #1a1d23;
+  --bg-secondary: #25282e;
+  --bg-column: #34373e;
+  --bg-card: #3c3f46;
+  --text-primary: #e4e6ea;
+  --text-secondary: #9ba3b0;
+  --border-color: #4a4d55;
+  --accent: #5c9ce6;
+  --accent-hover: #7db4f5;
+  --shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+}
+
+/* Top Bar */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.topbar-left { display: flex; align-items: center; gap: 12px; }
+.topbar-title { font-size: 20px; font-weight: 700; }
+
+.search-box {
+  padding: 8px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+  width: 260px;
+  outline: none;
+}
+
+.search-box:focus { border-color: var(--accent); }
+
+.topbar-right { display: flex; align-items: center; gap: 8px; }
+
+.btn {
+  padding: 8px 14px;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+}
+
+.btn:active { transform: scale(0.97); }
+
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-secondary { background: var(--bg-column); color: var(--text-primary); border: 1px solid var(--border-color); }
+.btn-secondary:hover { opacity: 0.85; }
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-danger:hover { opacity: 0.9; }
+
+/* Board */
+.board {
+  display: flex;
+  gap: 16px;
+  padding: 24px;
+  overflow-x: auto;
+  align-items: flex-start;
+}
+
+/* Column */
+.column {
+  min-width: var(--col-width);
+  width: var(--col-width);
+  background: var(--bg-column);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 90px);
+}
+
+.column-header {
+  padding: 12px 14px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.column-title {
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+}
+
+.column-title:hover { background: rgba(0,0,0,0.06); }
+
+.column-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-left: 4px;
+}
+
+.column-menu-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 16px;
+  color: var(--text-secondary);
+}
+
+.column-menu-btn:hover { background: rgba(0,0,0,0.08); }
+
+.column-body {
+  padding: 4px 10px 10px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 20px;
+}
+
+.column-body.drag-over { background: rgba(0,0,0,0.05); border-radius: 6px; }
+
+/* Cards */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  cursor: grab;
+  transition: box-shadow 0.2s, opacity 0.2s;
+}
+
+.card:hover { box-shadow: var(--shadow); }
+
+.card.dragging { opacity: 0.4; transform: rotate(3deg); }
+
+.card-title { font-size: 14px; line-height: 1.4; word-break: break-word; margin-bottom: 4px; }
+.card-description { font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 6px; }
+
+.has-comments::after {
+  content: '💬';
+  font-size: 11px;
+  float: right;
+}
+
+.card-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.card:hover .card-actions { opacity: 1; }
+
+.card-action-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--text-secondary);
+}
+
+.card-action-btn:hover { background: rgba(0,0,0,0.08); }
+
+.add-card-btn {
+  width: 100%;
+  padding: 8px;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+  margin-top: 4px;
+}
+
+.add-card-btn:hover { opacity: 0.7; }
+
+/* Modals */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 200;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-overlay.active { display: flex; }
+
+.modal {
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  width: 95%;
+  max-width: 600px;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 12px 48px rgba(0,0,0,0.3);
+}
+
+.modal-header {
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  background: var(--bg-secondary);
+  z-index: 10;
+  border-radius: 12px 12px 0 0;
+}
+
+.modal-header h2 { font-size: 18px; }
+
+.modal-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 22px;
+  color: var(--text-secondary);
+  padding: 0 4px;
+}
+
+.modal-body { padding: 24px; }
+
+.form-group { margin-bottom: 18px; }
+
+.form-label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--text-secondary); }
+
+.form-input,
+.form-textarea,
+.form-select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+
+.form-input:focus,
+.form-textarea:focus,
+.form-select:focus { border-color: var(--accent); }
+
+.form-textarea { resize: vertical; min-height: 80px; }
+
+.editor-toolbar {
+  display: flex;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: var(--bg-column);
+}
+
+.editor-toolbar button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  transition: background 0.2s, color 0.2s;
+}
+
+.editor-toolbar button:hover {
+  background: rgba(0,0,0,0.08);
+  color: var(--text-primary);
+}
+
+.contenteditable-editor {
+  border-radius: 0 0 var(--radius) var(--radius) !important;
+  overflow-y: auto;
+  min-height: 120px;
+  max-height: 300px;
+  white-space: pre-wrap;
+}
+
+.contenteditable-editor:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.contenteditable-editor pre {
+  background: var(--bg-column);
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 13px;
+  margin: 4px 0;
+}
+
+.contenteditable-editor code {
+  background: var(--bg-column);
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 13px;
+}
+
+.contenteditable-editor ul, .contenteditable-editor ol {
+  margin: 4px 0;
+  padding-left: 24px;
+}
+
+.contenteditable-editor a { color: var(--accent); }
+
+.modal-footer {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Comments Section */
+.comments-section { margin-top: 20px; }
+.comments-title { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
+
+.comment-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; max-height: 300px; overflow-y: auto; }
+
+.comment-item {
+  background: var(--bg-primary);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.comment-body { font-size: 14px; margin-bottom: 6px; white-space: pre-wrap; word-break: break-word; }
+
+.comment-meta { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--text-secondary); }
+
+.comment-actions { display: flex; gap: 6px; }
+
+/* Column context menu */
+.context-menu {
+  position: absolute;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+  z-index: 300;
+  min-width: 160px;
+  padding: 4px;
+}
+
+.context-menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.context-menu-item:hover { background: rgba(0,0,0,0.06); }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
+
+/* Hidden file inputs */
+.hidden-input { display: none; }
+
+/* Drag placeholder */
+.card-placeholder {
+  background: rgba(0,0,0,0.1);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  min-height: 44px;
+  border: 2px dashed var(--border-color);
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  background: #32383f;
+  color: #fff;
+  padding: 12px 24px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  z-index: 999;
+  transition: transform 0.3s ease;
+}
+
+.toast.show { transform: translateX(-50%) translateY(0); }
+
+/* Empty state */
+.empty-column { text-align: center; padding: 20px; color: var(--text-secondary); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<!-- Top Bar -->
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="topbar-title">Kanban Board</span>
+    <input type="text" id="searchBox" class="search-box" placeholder="Search tasks... (Ctrl+K)">
+  </div>
+  <div class="topbar-right">
+    <button class="btn btn-secondary" onclick="newDatabase()">New</button>
+    <button class="btn btn-secondary" onclick="importDatabase()">Open .sqlite</button>
+    <button class="btn btn-primary" onclick="exportDatabase()">Save .sqlite</button>
+    <input type="file" id="importFileInput" class="hidden-input" accept=".sqlite,.db" onchange="handleImport(event)">
+    <button class="btn btn-secondary" id="themeToggle" onclick="toggleTheme()" title="Toggle theme (Ctrl+T)">🌙</button>
+  </div>
+</div>
+
+<!-- Board -->
+<div class="board" id="board"></div>
+
+<!-- Add/Edit Task Modal -->
+<div class="modal-overlay" id="taskModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="taskModalTitle">New Task</h2>
+      <button class="modal-close" onclick="closeTaskModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="taskId">
+      <div class="form-group">
+        <label class="form-label">Title</label>
+        <input type="text" id="taskTitleInput" class="form-input" placeholder="Task title">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Column</label>
+        <select id="taskColumnSelect" class="form-select"></select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeTaskModal()">Cancel</button>
+      <button class="btn btn-danger" id="deleteTaskBtn" onclick="deleteTaskFromModal()" style="display:none">Delete</button>
+      <button class="btn btn-primary" onclick="saveTask()">Save Task</button>
+    </div>
+  </div>
+</div>
+
+<!-- Task Detail Modal -->
+<div class="modal-overlay" id="detailModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Edit Task Details</h2>
+      <button class="modal-close" onclick="closeDetailModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="detailTaskId">
+      <div class="form-group">
+        <label class="form-label">Title</label>
+        <input type="text" id="detailTitle" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <div class="editor-toolbar">
+          <button type="button" onclick="execCmd('bold')" title="Bold"><b>B</b></button>
+          <button type="button" onclick="execCmd('italic')" title="Italic"><i>I</i></button>
+          <button type="button" onclick="execCmd('underline')" title="Underline"><u>U</u></button>
+          <button type="button" onclick="execCmd('strikeThrough')" title="Strikethrough"><s>S</s></button>
+          <button type="button" onclick="execCmd('insertUnorderedList')" title="Bullet list">• List</button>
+          <button type="button" onclick="execCmd('insertOrderedList')" title="Numbered list">1. List</button>
+          <button type="button" onclick="execCmd('formatBlock', 'pre')" title="Code block">&lt;/&gt;</button>
+        </div>
+        <div id="detailDesc" class="form-textarea contenteditable-editor" contenteditable="true"></div>
+      </div>
+      <div class="comments-section">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <span class="comments-title">Comments</span>
+          <button class="btn btn-primary" id="addCommentBtn" onclick="toggleCommentEditor()" style="padding:6px 12px;font-size:12px;">+ Add Comment</button>
+        </div>
+        <div id="commentInputArea" style="display:none;margin-bottom:14px;">
+          <div class="editor-toolbar">
+            <button type="button" onclick="execCmd('bold')" title="Bold"><b>B</b></button>
+            <button type="button" onclick="execCmd('italic')" title="Italic"><i>I</i></button>
+            <button type="button" onclick="execCmd('underline')" title="Underline"><u>U</u></button>
+            <button type="button" onclick="execCmd('strikeThrough')" title="Strikethrough"><s>S</s></button>
+            <button type="button" onclick="execCmd('insertUnorderedList')" title="Bullet list">• List</button>
+            <button type="button" onclick="execCmd('insertOrderedList')" title="Numbered list">1. List</button>
+            <button type="button" onclick="execCmd('formatBlock', 'pre')" title="Code block">&lt;/&gt;</button>
+          </div>
+          <div id="newCommentText" class="form-textarea contenteditable-editor" contenteditable="true" data-placeholder="Write a comment..."></div>
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button class="btn btn-primary" onclick="saveNewComment()" style="padding:6px 12px;font-size:12px;">Accept</button>
+            <button class="btn btn-secondary" onclick="cancelCommentEditor()" style="padding:6px 12px;font-size:12px;">Cancel</button>
+          </div>
+        </div>
+        <div class="comment-list" id="commentList"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeDetailModal()">Close</button>
+      <button class="btn btn-primary" onclick="saveTaskDetails()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script src="assets/sql-wasm.js"></script>
+<script>
+// ========== GLOBALS ==========
+let db = null;
+let SQL = null;
+let draggedCardId = null;
+let draggedFromColumn = null;
+
+const DEFAULT_COLUMNS = [
+  { id: 1, title: 'To Do', order: 0 },
+  { id: 2, title: 'In Progress', order: 1 },
+  { id: 3, title: 'Done', order: 2 }
+];
+
+// ========== INIT ==========
+let dbReady = false;
+async function init() {
+  try {
+    SQL = await initSqlJs({ locateFile: file => 'assets/' + file });
+    dbReady = true;
+  } catch (e) {
+    document.getElementById('board').innerHTML = '<p style="padding:24px;color:red;">Failed to load sql.js. Check your connection or bundle the WASM file locally.</p>';
+    return;
+  }
+
+  const saved = localStorage.getItem('kanban_db');
+  if (saved) {
+    try {
+      const buf = new Uint8Array(base64ToArrayBuffer(saved));
+      db = new SQL.Database(buf);
+      renderBoard();
+      return;
+    } catch (e) { /* ignore corrupted save */ }
+  }
+
+  initNewDB();
+}
+
+function initNewDB() {
+  db = new SQL.Database();
+  try {
+    db.run("CREATE TABLE columns (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0)");
+    db.run("CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, column_id INTEGER NOT NULL REFERENCES columns(id), title TEXT NOT NULL, description TEXT DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
+    db.run("CREATE TABLE comments (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, body TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
+
+    // Seed default columns using direct SQL to avoid parameter binding issues
+    db.run("INSERT INTO columns (id, title, sort_order) VALUES (1, 'To Do', 0)");
+    db.run("INSERT INTO columns (id, title, sort_order) VALUES (2, 'In Progress', 1)");
+    db.run("INSERT INTO columns (id, title, sort_order) VALUES (3, 'Done', 2)");
+
+    autoSave();
+    renderBoard();
+  } catch (e) {
+    console.error('initNewDB failed:', e);
+    throw e;
+  }
+}
+
+// ========== PERSISTENCE ==========
+function getDBBytes() {
+  return new Uint8Array(db.export());
+}
+
+function arrayBufferToBase64(buffer) {
+  var bytes = new Uint8Array(buffer);
+  var chunkSize = 0x8000; // 32KB chunks to avoid stack overflow
+  var binary = '';
+  for (var i = 0; i < bytes.length; i += chunkSize) {
+    var chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+    binary += String.fromCharCode.apply(null, chunk);
+  }
+  return btoa(binary);
+}
+
+function base64ToArrayBuffer(base64) {
+  var binaryString = atob(base64);
+  var len = binaryString.length;
+  var bytes = new Uint8Array(len);
+  for (var i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+function autoSave() {
+  try {
+    const bytes = getDBBytes();
+    localStorage.setItem('kanban_db', arrayBufferToBase64(bytes));
+  } catch (e) {
+    console.error('Auto-save failed:', e);
+  }
+}
+
+function newDatabase() {
+  if (!confirm('Create a new database? All current data will be lost unless saved to .sqlite first.')) return;
+  try {
+    if (!dbReady) { showToast('Loading database, please wait...'); return; }
+    localStorage.removeItem('kanban_db');
+    initNewDB();
+    showToast('New database created!');
+  } catch (e) {
+    console.error('Failed to create new database:', e);
+    showToast('Error creating database.');
+  }
+}
+
+function exportDatabase() {
+  const bytes = getDBBytes();
+  const blob = new Blob([bytes], { type: 'application/x-sqlite3' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'kanban_' + new Date().toISOString().slice(0, 10) + '.sqlite';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Database saved!');
+}
+
+function importDatabase() {
+  document.getElementById('importFileInput').click();
+}
+
+function handleImport(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function (e) {
+    try {
+      const buf = new Uint8Array(e.target.result);
+      db = new SQL.Database(buf);
+      localStorage.removeItem('kanban_db');
+      renderBoard();
+      showToast('Database loaded!');
+    } catch (err) {
+      showToast('Error loading database file.');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+  event.target.value = '';
+}
+
+// ========== RENDERING ==========
+function renderBoard() {
+  const board = document.getElementById('board');
+  board.innerHTML = '';
+
+  const columnsResult = db.exec("SELECT * FROM columns ORDER BY sort_order");
+  if (columnsResult.length === 0) return;
+  const columns = mapRows(columnsResult[0]);
+
+  const search = document.getElementById('searchBox').value.toLowerCase().trim();
+
+  for (const col of columns) {
+    const columnEl = createColumnElement(col, search);
+    board.appendChild(columnEl);
+  }
+}
+
+function createColumnElement(col, filter = '') {
+  const columnDiv = document.createElement('div');
+  columnDiv.className = 'column';
+  columnDiv.dataset.columnId = col.id;
+
+  let query = "SELECT * FROM tasks WHERE column_id = ? ORDER BY sort_order";
+  let result = db.exec(query, [col.id]);
+  let tasks = [];
+  if (result.length > 0) {
+    tasks = mapRows(result[0]).filter(t => !filter || t.title.toLowerCase().includes(filter) || t.description.toLowerCase().includes(filter));
+  }
+
+  const titleEditable = document.createElement('span');
+  titleEditable.className = 'column-title';
+  titleEditable.innerHTML = col.title + '<span class="column-count"> (' + tasks.length + ')</span>';
+  titleEditable.onclick = () => renameColumn(col.id, titleEditable);
+
+  columnDiv.innerHTML = `
+    <div class="column-header">
+      <span></span>
+      <button class="column-menu-btn" onclick="showColumnMenu(event, ${col.id})">&#x25CF;</button>
+    </div>`;
+
+  const headerEl = columnDiv.querySelector('.column-header');
+  headerEl.insertBefore(titleEditable, headerEl.firstChild);
+
+  const body = document.createElement('div');
+  body.className = 'column-body';
+  body.dataset.columnId = col.id;
+
+  body.addEventListener('dragover', e => { e.preventDefault(); body.classList.add('drag-over'); });
+  body.addEventListener('dragleave', () => { body.classList.remove('drag-over'); });
+  body.addEventListener('drop', e => handleDrop(e, parseInt(body.dataset.columnId)));
+
+  if (tasks.length === 0 && !filter) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-column';
+    empty.textContent = 'No tasks yet';
+    body.appendChild(empty);
+  }
+
+  for (const task of tasks) {
+    body.appendChild(createCardElement(task, col.id));
+  }
+
+  columnDiv.appendChild(body);
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'add-card-btn';
+  addBtn.textContent = '+ Add a card';
+  addBtn.onclick = () => openAddTask(col.id);
+  columnDiv.appendChild(addBtn);
+
+  return columnDiv;
+}
+
+function createCardElement(task, colId) {
+  const div = document.createElement('div');
+  let cardClass = 'card';
+  if (task.description && task.description.trim() !== '') {
+    cardClass += ' has-description';
+  }
+  div.draggable = true;
+  div.dataset.taskId = task.id;
+  div.dataset.columnId = task.column_id || colId;
+
+  // Check for comments
+  try {
+    const cnt = db.exec("SELECT COUNT(*) AS c FROM comments WHERE task_id = " + task.id);
+    if (cnt.length > 0 && cnt[0].values[0][0] > 0) cardClass += ' has-comments';
+  } catch(e) {}
+  div.className = cardClass;
+
+  let html = `<div class="card-title">${escapeHtml(task.title)}</div>`;
+  if (task.description) {
+    html += `<div class="card-description">${escapeHtml(task.description)}</div>`;
+  }
+  html += `
+    <div class="card-actions">
+      <button class="card-action-btn" onclick="openDetail(${task.id})" title="Edit details & comments">✏️</button>
+      <button class="card-action-btn" onclick="quickDelete(${task.id})" title="Delete">&times;</button>
+    </div>`;
+
+  div.innerHTML = html;
+
+  div.addEventListener('dragstart', e => {
+    draggedCardId = task.id;
+    draggedFromColumn = parseInt(div.dataset.columnId);
+    setTimeout(() => div.classList.add('dragging'), 0);
+    e.dataTransfer.effectAllowed = 'move';
+  });
+
+  div.addEventListener('dragend', () => {
+    div.classList.remove('dragging');
+    document.querySelectorAll('.column-body').forEach(b => b.classList.remove('drag-over'));
+    draggedCardId = null;
+    draggedFromColumn = null;
+  });
+
+  return div;
+}
+
+function mapRows(result) {
+  const cols = result.columns;
+  return result.values.map(v => {
+    const o = {};
+    for (let i = 0; i < cols.length; i++) o[cols[i]] = v[i];
+    return o;
+  });
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ========== DRAG & DROP ==========
+function handleDrop(e, targetColumnId) {
+  e.preventDefault();
+  document.querySelectorAll('.column-body').forEach(b => b.classList.remove('drag-over'));
+
+  if (draggedCardId === null) return;
+
+  try {
+    // Update task column
+    db.run("UPDATE tasks SET column_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [targetColumnId, draggedCardId]);
+
+    // Reorder: find max sort_order in new column and set above it
+    const maxOrder = db.exec("SELECT COALESCE(MAX(sort_order), -1) AS m FROM tasks WHERE column_id = " + targetColumnId);
+    const nextOrder = (maxOrder[0] ? maxOrder[0].values[0][0] : 0) + 1;
+    // Actually, let's find the position: we want to drop it after items in this column
+    // Simple approach: set sort_order to a high value so it goes to bottom of sorted list
+    db.run("UPDATE tasks SET sort_order = ? WHERE id = ?", [nextOrder, draggedCardId]);
+
+    autoSave();
+    renderBoard();
+  } catch (err) {
+    console.error('Drop error:', err);
+  }
+}
+
+// ========== TASK CRUD ==========
+function openAddTask(columnId) {
+  document.getElementById('taskModalTitle').textContent = 'New Task';
+  document.getElementById('taskId').value = '';
+  document.getElementById('taskTitleInput').value = '';
+  populateColumnSelect();
+  // Select the column
+  const sel = document.getElementById('taskColumnSelect');
+  if (columnId) { for (const opt of sel.options) { if (parseInt(opt.value) === columnId) { sel.value = opt.value; break; } } }
+  else { sel.selectedIndex = 0; }
+
+  document.getElementById('deleteTaskBtn').style.display = 'none';
+  openModal('taskModal');
+  setTimeout(() => document.getElementById('taskTitleInput').focus(), 100);
+}
+
+function saveTask() {
+  const id = document.getElementById('taskId').value;
+  const title = document.getElementById('taskTitleInput').value.trim();
+  const colId = parseInt(document.getElementById('taskColumnSelect').value);
+
+  if (!title) { showToast('Title is required.'); return; }
+
+  try {
+    if (id) {
+      db.run("UPDATE tasks SET title = ?, column_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [title, colId, parseInt(id)]);
+    } else {
+      const maxOrder = db.exec("SELECT COALESCE(MAX(sort_order), -1) AS m FROM tasks WHERE column_id = " + colId);
+      const nextOrder = (maxOrder[0] ? maxOrder[0].values[0][0] : 0) + 1;
+      db.run('INSERT INTO tasks (column_id, title, sort_order) VALUES (?, ?, ?)', [colId, title, nextOrder]);
+    }
+
+    autoSave();
+    closeTaskModal();
+    renderBoard();
+    showToast(id ? 'Task updated!' : 'Task created!');
+  } catch (err) {
+    console.error(err);
+    showToast('Error saving task.');
+  }
+}
+
+function deleteTaskFromModal() {
+  const id = document.getElementById('taskId').value;
+  if (!id || !confirm('Delete this task?')) return;
+
+  db.run("DELETE FROM tasks WHERE id = ?", [parseInt(id)]);
+  autoSave();
+  closeTaskModal();
+  renderBoard();
+  showToast('Task deleted.');
+}
+
+function quickDelete(taskId) {
+  if (!confirm('Delete this task?')) return;
+  db.run("DELETE FROM tasks WHERE id = " + taskId);
+  autoSave();
+  renderBoard();
+  showToast('Task deleted.');
+}
+
+function execCmd(command, value) {
+  // Find whichever contenteditable currently has focus (description or comment editor)
+  let target = null;
+  document.querySelectorAll('.contenteditable-editor').forEach(el => {
+    if (document.activeElement === el || el.contains(document.activeElement)) {
+      target = el;
+    }
+  });
+
+  document.execCommand(command, false, value || null);
+
+  // Restore focus to the editor that was active when the toolbar button was clicked
+  if (target) target.focus();
+}
+
+// ========== COMMENT WYSIWYG EDITOR ==========
+let commentEditorOpen = false;
+
+function toggleCommentEditor() {
+  const area = document.getElementById('commentInputArea');
+  const btn = document.getElementById('addCommentBtn');
+  
+  if (commentEditorOpen) return;
+  
+  commentEditorOpen = true;
+  area.style.display = 'block';
+  btn.style.display = 'none';
+  setTimeout(() => document.getElementById('newCommentText').focus(), 50);
+}
+
+function saveNewComment() {
+  const editor = document.getElementById('newCommentText');
+  const html = editor.innerHTML.trim();
+  if (!html || html === '<br>') return;
+  
+  const taskId = parseInt(document.getElementById('detailTaskId').value);
+  db.run("INSERT INTO comments (task_id, body) VALUES (?, ?)", [taskId, html]);
+  autoSave();
+  cancelCommentEditor();
+  renderComments(taskId);
+  showToast('Comment added!');
+}
+
+function cancelCommentEditor() {
+  commentEditorOpen = false;
+  document.getElementById('commentInputArea').style.display = 'none';
+  document.getElementById('addCommentBtn').style.display = '';
+  document.getElementById('newCommentText').innerHTML = '';
+}
+
+// ========== TASK DETAIL (with comments) ==========
+function openDetail(taskId) {
+  try {
+    const result = db.exec("SELECT * FROM tasks WHERE id = " + taskId);
+    if (result.length === 0) return;
+    const task = mapRows(result[0])[0];
+
+    document.getElementById('detailTaskId').value = task.id;
+    document.getElementById('detailTitle').value = task.title || '';
+    document.getElementById('detailDesc').innerHTML = task.description || '';
+
+    loadComments(taskId);
+
+    openModal('detailModal');
+  } catch (err) { console.error(err); }
+}
+
+function saveTaskDetails() {
+  const taskId = parseInt(document.getElementById('detailTaskId').value);
+  const title = document.getElementById('detailTitle').value.trim();
+  let desc = document.getElementById('detailDesc').innerHTML;
+
+  // Strip empty tags for plain text check
+  const plainText = desc.replace(/<[^>]*>/g, '');
+  if (!title) { showToast('Title is required.'); return; }
+
+  db.run("UPDATE tasks SET title = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [title, desc, taskId]);
+  autoSave();
+  closeDetailModal();
+  renderBoard();
+  showToast('Task updated!');
+}
+
+function loadComments(taskId) {
+  const list = document.getElementById('commentList');
+  list.innerHTML = '';
+
+  try {
+    const result = db.exec("SELECT * FROM comments WHERE task_id = " + taskId + " ORDER BY created_at ASC");
+    if (result.length === 0) return;
+    const comments = mapRows(result[0]);
+
+    for (const c of comments) {
+      const div = document.createElement('div');
+      div.className = 'comment-item';
+      div.dataset.commentId = c.id;
+
+      const date = new Date(c.created_at).toLocaleString();
+
+      let bodyHtml = '';
+      if (c._editing) {
+        bodyHtml = '<textarea class="form-textarea" id="editCommentText" rows="3">' + escapeHtml(c.body) + '</textarea>';
+      } else {
+        bodyHtml = '<div class="comment-body">' + c.body + '</div>';
+      }
+
+      div.innerHTML = `
+        ${bodyHtml}
+        <div class="comment-meta">
+          <span>${date}</span>
+          <div class="comment-actions">
+            ${c._editing
+              ? '<button class="card-action-btn" onclick="saveComment(' + c.id + ')">💾</button><button class="card-action-btn" onclick="renderComments(' + taskId + ')">Cancel</button>'
+              : '<button class="card-action-btn" onclick="editComment(' + c.id + ',' + taskId + ')">✏️</button>'}
+          </div>
+      `;
+
+      list.appendChild(div);
+    }
+  } catch (err) { console.error(err); }
+}
+
+function renderComments(taskId) {
+  try {
+    const result = db.exec("SELECT * FROM comments WHERE task_id = " + taskId + " ORDER BY created_at ASC");
+    if (result.length === 0) {
+      document.getElementById('commentList').innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">No comments yet.</p>';
+      return;
+    }
+    const comments = mapRows(result[0]);
+
+    // Add _editing flag based on whether there's an edit textarea in DOM
+    for (const c of comments) {
+      c._editing = !!document.querySelector('#editCommentText');
+    }
+
+    loadComments(taskId);
+  } catch (err) {}
+}
+
+function editComment(commentId, taskId) {
+  try {
+    const result = db.exec("SELECT * FROM comments WHERE id = " + commentId);
+    if (result.length === 0) return;
+    // Mark this one as editing (simple flag approach)
+    const temp = document.createElement('div');
+    temp.id = '_editingComment_' + commentId;
+    temp.style.display = 'none';
+    document.body.appendChild(temp);
+
+    loadCommentsWithEditFlag(taskId, commentId);
+  } catch (err) { console.error(err); }
+}
+
+function loadCommentsWithEditFlag(taskId, editId) {
+  const list = document.getElementById('commentList');
+  try {
+    const result = db.exec("SELECT * FROM comments WHERE task_id = " + taskId + " ORDER BY created_at ASC");
+    if (result.length === 0) return;
+    let comments = mapRows(result[0]);
+
+    // Add _editing flag
+    for (const c of comments) {
+      c._editing = parseInt(c.id) === editId;
+    }
+
+    list.innerHTML = '';
+    for (const c of comments) {
+      const div = document.createElement('div');
+      div.className = 'comment-item';
+      div.dataset.commentId = c.id;
+
+      const date = new Date(c.created_at).toLocaleString();
+
+      let bodyHtml;
+      if (c._editing) {
+        bodyHtml = '<textarea class="form-textarea" id="editCommentText" rows="3">' + escapeHtml(c.body) + '</textarea>';
+      } else {
+        bodyHtml = '<div class="comment-body">' + c.body + '</div>';
+      }
+
+      div.innerHTML = `
+        ${bodyHtml}
+        <div class="comment-meta">
+          <span>${date}</span>
+          <div class="comment-actions">
+            ${c._editing
+              ? '<button class="card-action-btn" onclick="saveComment(' + c.id + ')">💾</button><button class="card-action-btn" onclick="renderComments(' + taskId + ')">Cancel</button>'
+              : '<button class="card-action-btn" onclick="editComment(' + c.id + ',' + taskId + ')">✏️</button>'}
+          </div>
+        </div>`;
+
+      list.appendChild(div);
+    }
+
+    const textarea = document.getElementById('editCommentText');
+    if (textarea) { setTimeout(() => textarea.focus(), 50); }
+  } catch (err) {}
+}
+
+function saveComment(commentId) {
+  const newText = document.getElementById('editCommentText').value.trim();
+  if (!newText) return;
+
+  db.run("UPDATE comments SET body = ? WHERE id = ?", [newText, parseInt(commentId)]);
+  autoSave();
+
+  const taskId = parseInt(document.getElementById('detailTaskId').value);
+  renderComments(taskId);
+}
+
+// ========== COLUMN MENU & RENAME ==========
+function showColumnMenu(e, colId) {
+  e.stopPropagation();
+  // Remove existing menus
+  document.querySelectorAll('.context-menu').forEach(m => m.remove());
+
+  const menu = document.createElement('div');
+  menu.className = 'context-menu';
+  menu.innerHTML = `
+    <button class="context-menu-item" onclick="renameColumn(${colId}, null)">Rename</button>
+    <button class="context-menu-item" onclick="moveColumn(${colId}, -1)">Move Left</button>
+    <button class="context-menu-item" onclick="moveColumn(${colId}, 1)">Move Right</button>
+    <button class="context-menu-item" style="color:var(--danger)" onclick="deleteColumn(${colId})">Delete Column</button>`;
+
+  document.body.appendChild(menu);
+
+  // Position
+  const rect = e.target.getBoundingClientRect();
+  menu.style.top = (rect.bottom + 4) + 'px';
+  menu.style.right = (window.innerWidth - rect.right) + 'px';
+
+  setTimeout(() => {
+    document.addEventListener('click', function handler() {
+      menu.remove();
+      document.removeEventListener('click', handler);
+    });
+  }, 10);
+}
+
+function renameColumn(colId, titleEl) {
+  try {
+    const result = db.exec("SELECT * FROM columns WHERE id = " + colId);
+    if (result.length === 0) return;
+    const col = mapRows(result[0])[0];
+
+    const newTitle = prompt('Rename column:', col.title);
+    if (!newTitle || !newTitle.trim()) return;
+
+    db.run("UPDATE columns SET title = ? WHERE id = ?", [newTitle.trim(), colId]);
+    autoSave();
+    renderBoard();
+  } catch (err) { console.error(err); }
+}
+
+function moveColumn(colId, direction) {
+  try {
+    const result = db.exec("SELECT * FROM columns ORDER BY sort_order");
+    if (result.length === 0) return;
+    let cols = mapRows(result[0]);
+    const idx = cols.findIndex(c => c.id === colId);
+    if (idx < 0) return;
+
+    const swapIdx = idx + direction;
+    if (swapIdx < 0 || swapIdx >= cols.length) return;
+
+    // Swap sort_order values
+    const tmp = cols[idx].sort_order;
+    db.run("UPDATE columns SET sort_order = ? WHERE id = ?", [cols[swapIdx].sort_order, colId]);
+    db.run("UPDATE columns SET sort_order = ? WHERE id = ?", [tmp, cols[swapIdx].id]);
+
+    autoSave();
+    renderBoard();
+  } catch (err) { console.error(err); }
+}
+
+function deleteColumn(colId) {
+  if (!confirm('Delete this column and all its tasks?')) return;
+
+  db.run("DELETE FROM comments WHERE task_id IN (SELECT id FROM tasks WHERE column_id = " + colId + ")");
+  db.run("DELETE FROM tasks WHERE column_id = " + colId);
+  db.run("DELETE FROM columns WHERE id = ?", [colId]);
+
+  autoSave();
+  renderBoard();
+}
+
+// ========== COLUMN SELECT POPULATION ==========
+function populateColumnSelect() {
+  try {
+    const result = db.exec("SELECT * FROM columns ORDER BY sort_order");
+    if (result.length === 0) return;
+    const cols = mapRows(result[0]);
+    const sel = document.getElementById('taskColumnSelect');
+    sel.innerHTML = '';
+    for (const c of cols) {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.title;
+      sel.appendChild(opt);
+    }
+  } catch (err) {}
+}
+
+// ========== MODALS ==========
+function openModal(id) {
+  document.getElementById(id).classList.add('active');
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('active');
+}
+
+function closeTaskModal() { closeModal('taskModal'); }
+function closeDetailModal() { closeModal('detailModal'); }
+
+// Close modals on overlay click
+document.addEventListener('click', e => {
+  if (e.target.classList.contains('modal-overlay')) {
+    e.target.classList.remove('active');
+  }
+});
+
+// ========== THEME ==========
+function toggleTheme() {
+  const html = document.documentElement;
+  const current = html.getAttribute('data-theme');
+  const next = current === 'dark' ? 'light' : 'dark';
+  html.setAttribute('data-theme', next);
+  localStorage.setItem('kanban_theme', next);
+  document.getElementById('themeToggle').textContent = next === 'dark' ? '☀️' : '🌙';
+}
+
+(function () {
+  const saved = localStorage.getItem('kanban_theme');
+  if (saved) {
+    document.documentElement.setAttribute('data-theme', saved);
+    document.getElementById('themeToggle').textContent = saved === 'dark' ? '☀️' : '🌙';
+  } else {
+    // Auto-detect system preference
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      document.getElementById('themeToggle').textContent = '☀️';
+    }
+  }
+})();
+
+// ========== TOAST ==========
+function showToast(msg) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 2500);
+}
+
+// ========== SEARCH ==========
+document.addEventListener('DOMContentLoaded', () => {
+  let debounceTimer;
+  document.getElementById('searchBox').addEventListener('input', function() {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => renderBoard(), 250);
+  });
+});
+
+// ========== KEYBOARD SHORTCUTS ==========
+document.addEventListener('keydown', e => {
+  // Ctrl+K: focus search
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault();
+    document.getElementById('searchBox').focus();
+  }
+  // Ctrl+T: toggle theme
+  if ((e.ctrlKey || e.metaKey) && e.key === 't') {
+    e.preventDefault();
+    toggleTheme();
+  }
+  // Escape: close modals and comment editor
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
+    document.querySelectorAll('.context-menu').forEach(m => m.remove());
+    if (commentEditorOpen) cancelCommentEditor();
+  }
+});
+
+// ========== START ==========
+init();
+</script>
+</body>
+</html>
