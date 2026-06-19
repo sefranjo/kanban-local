@@ -2,6 +2,16 @@
 
 An offline-only Kanban board that runs entirely in the browser with SQLite via WebAssembly. Single HTML file, zero dependencies, no build step.
 
+## Introduction
+
+Have you ever wanted to have your own portable Kanban board for your personal projects?
+
+Something that can run on any OS, without servers required, and a small `.sqlite` database file that you can sync via your preferred solution — Google Drive, OneDrive, pCloud, and so on.
+
+This is the solution. Run your Kanban board from one computer at a time, simple and effective.
+
+It's also a great starting point for improvements. You can enhance it with your favourite AI tool — the repo includes `AGENTS.md` to help AI agents understand the codebase.
+
 ## Features
 
 - **Drag-and-drop** cards between columns using native HTML5 API
@@ -80,3 +90,15 @@ assets/sql-wasm.wasm # SQLite WebAssembly binary (~650KB)
 ## Development Notes
 
 This project has no build step, no package manager, and no lint/typecheck/format scripts. Manual edit-and-refresh in the browser is the entire development workflow.
+
+---
+
+## Made with
+
+This small project has been made thanks to the creators of the following tools:
+
+- [LM Studio](https://github.com/lmstudio-ai)
+- [OpenCode](https://github.com/anomalyco/opencode)
+- [Qwen3.6](https://github.com/QwenLM/Qwen3.6)
+- [Qwen3.6 modified by mulder](https://huggingface.co/mudler/Qwen3.6-35B-A3B-APEX-GGUF)
+- [Qwen3.6-35B-A3B-Claude-4.7-Opus-Reasoning-Distilled-APEX](https://huggingface.co/mudler/Qwen3.6-35B-A3B-Claude-4.7-Opus-Reasoning-Distilled-APEX-GGUF)
