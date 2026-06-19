@@ -690,8 +690,15 @@ var TOOLBAR_HTML = [
   '<button type="button" onclick="execCmd(\'strikeThrough\')" title="Strikethrough"><s>S</s></button>',
   '<button type="button" onclick="execCmd(\'insertUnorderedList\')" title="Bullet list">• List</button>',
   '<button type="button" onclick="execCmd(\'insertOrderedList\')" title="Numbered list">1. List</button>',
-  '<button type="button" onclick="execCmd(\'formatBlock\', \'pre\')" title="Code block">&lt;/&gt;</button>'
+  '<button type="button" onclick="execCmd(\'formatBlock\', \'pre\')" title="Code block">&lt;/&gt;</button>',
+  '<button type="button" onclick="execCmd(\'insertHTML\', \'<code>\' + window.getSelection() + \'</code>\')" title="Inline code">&lt;/&gt;</button>'
 ].join('');
+
+function populateToolbar() {
+  document.querySelectorAll('.editor-toolbar').forEach(function(tb) {
+    if (tb.innerHTML === '') tb.innerHTML = TOOLBAR_HTML;
+  });
+}
 
 function loadLabels() {
   try {
@@ -927,12 +934,12 @@ function handleImport(event) {
       autoSave();
       renderBoard();
       showToast('Database loaded!');
+      event.target.value = '';
     } catch (err) {
       showToast('Error loading database file.');
     }
   };
   reader.readAsArrayBuffer(file);
-  event.target.value = '';
 }
 
 // ========== RENDERING ==========
@@ -1398,6 +1405,25 @@ function execCmd(command, value) {
   if (target) target.focus();
 }
 
+// Sanitize pasted HTML to strip <script>, event handlers, and javascript: URLs
+document.addEventListener('paste', function(e) {
+  if (!document.activeElement || !document.activeElement.classList.contains('contenteditable-editor')) return;
+  let raw = (e.clipboardData || window.clipboardData).getData('text/html');
+  if (!raw) {
+    // Fallback to plain text when no HTML is available (e.g., pasting a plain URL)
+    raw = (e.clipboardData || window.clipboardData).getData('text/plain');
+    if (raw) {
+      e.preventDefault();
+      document.execCommand('insertText', false, raw);
+      return;
+    }
+    return;
+  }
+  e.preventDefault();
+  const clean = sanitizeHtml(raw);
+  document.execCommand('insertHTML', false, clean);
+});
+
 // ========== COMMENT WYSIWYG EDITOR ==========
 let commentEditorOpen = false;
 
@@ -1485,7 +1511,7 @@ function saveTaskDetails() {
 
   const labels = (document.getElementById('detailCardLabels').value || '').split(',').map(s => s.trim()).filter(Boolean).join(',');
 
-  db.run("UPDATE tasks SET title = ?, description = ?, task_type = ?, card_labels = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [title, desc, document.getElementById('detailTaskTypeSelect').value || 'task', labels, taskId]);
+  db.run("UPDATE tasks SET title = ?, description = ?, task_type = ?, card_labels = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [title, sanitizeHtml(desc), document.getElementById('detailTaskTypeSelect').value || 'task', labels, taskId]);
   autoSave();
   _detailOrigTitle = title;
   _detailOrigDesc = desc;
@@ -1566,7 +1592,6 @@ function renderLinkedTasks(task) {
       for (const child of children) {
         html += `<div style="margin-bottom:3px;font-size:13px;display:flex;align-items:center;gap:6px;">
           <a href="#" onclick="openDetail(${child.id}); return false;" style="cursor:pointer;color:var(--accent);text-decoration:none;">${escapeHtml(child.title)}</a>
-          ${task.task_type === 'epic' || task.parent_id ? '' : ''}
         </div>`;
       }
       // Add child button only for epic or non-ephemeral tasks
@@ -1662,6 +1687,8 @@ function loadComments(taskId) {
       list.appendChild(div);
     }
   } catch (err) { console.error(err); }
+  // Populate toolbar in the newly rendered comment edit view
+  populateToolbar();
 }
 
 function renderComments(taskId) {
@@ -1679,6 +1706,7 @@ function renderComments(taskId) {
     }
 
     loadComments(taskId);
+    populateToolbar();
   } catch (err) {}
 }
 
@@ -1749,7 +1777,7 @@ function saveComment(commentId) {
   const html = editor.innerHTML.trim();
   if (!html || html === '<br>') return;
 
-  db.run("UPDATE comments SET body = ? WHERE id = ?", [html, parseInt(commentId)]);
+  db.run("UPDATE comments SET body = ? WHERE id = ?", [sanitizeHtml(html), parseInt(commentId)]);
   autoSave();
 
   const taskId = parseInt(document.getElementById('detailTaskId').value);
@@ -1919,6 +1947,7 @@ function onLabelManagerNameChange(index) {
     return;
   }
   LABEL_PRESETS[index].name = newName;
+  syncLabelsToDb();
 }
 
 function onLabelManagerAliasChange(index) {
@@ -2182,7 +2211,7 @@ document.addEventListener('DOMContentLoaded', () => {
     debounceTimer = setTimeout(() => renderBoard(), 250);
   });
   // Populate all editor toolbars from the shared constant
-  document.querySelectorAll('.editor-toolbar').forEach(function(tb) { tb.innerHTML = TOOLBAR_HTML; });
+  populateToolbar();
 });
 
 // ========== KEYBOARD SHORTCUTS ==========
