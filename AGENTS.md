@@ -12,6 +12,10 @@ pkill -f "node server.js"   # stop
 
 **Node.js required.** Only Node serves `.wasm` with `application/wasm` MIME type (`server.js:14`). Python fallback in `start.sh` fails at runtime.
 
+## Version
+
+- **Version**: Defined as `APP_VERSION` constant in `index.html` (`<script>` block).
+
 ## Port quirk
 
 `start.sh` accepts a port arg and passes it to itself, but `server.js` ignores CLI args entirely — it always binds to 8089. The port arg to `start.sh` only affects the startup message, not the actual server.
