@@ -741,8 +741,6 @@ async function init() {
     try {
       const buf = new Uint8Array(base64ToArrayBuffer(saved));
       db = new SQL.Database(buf);
-      migrateColumns();
-      migrateTaskSchema();
       seedLabelsIfMissing();
       renderBoard();
       return;
@@ -750,31 +748,6 @@ async function init() {
   }
 
   initNewDB();
-}
-
-function migrateColumns() {
-  try {
-    const result = db.exec("SELECT COUNT(*) AS c FROM columns WHERE title = 'Blocked'");
-    if (result[0].values[0][0] > 0) return;
-
-    // Shift sort_order for existing non-To-Done columns to make room at position 1
-    db.run("UPDATE columns SET sort_order = sort_order + 1 WHERE id != 1 AND title != 'Done'");
-
-    const nextId = db.exec("SELECT COALESCE(MAX(id), 0) AS m FROM columns")[0].values[0][0] + 1;
-    db.run(`INSERT INTO columns (id, title, sort_order) VALUES (${nextId}, 'Blocked', 1)`);
-
-    autoSave();
-    } catch (e) { console.error('Column migration failed:', e); }
-}
-
-function migrateTaskSchema() {
-  try {
-    try { db.run("ALTER TABLE tasks ADD COLUMN task_type TEXT DEFAULT 'task' CHECK(task_type IN ('epic', 'task'))"); } catch(e) {}
-    try { db.run("ALTER TABLE tasks ADD COLUMN parent_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL"); } catch(e) {}
-    try { db.run("ALTER TABLE tasks ADD COLUMN card_labels TEXT DEFAULT ''"); } catch(e) {}
-    db.run("UPDATE tasks SET task_type = COALESCE(task_type, 'task') WHERE task_type NOT IN ('epic', 'task')");
-    autoSave();
-  } catch (e) { console.error('Task schema migration failed:', e); }
 }
 
 function initNewDB() {
@@ -928,8 +901,6 @@ function handleImport(event) {
       clearStorageWarning();
       const buf = new Uint8Array(e.target.result);
       db = new SQL.Database(buf);
-      migrateColumns();
-      migrateTaskSchema();
       seedLabelsIfMissing();
       autoSave();
       renderBoard();

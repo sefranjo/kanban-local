@@ -59,7 +59,7 @@ assets/sql-wasm.wasm # SQLite WebAssembly binary (~650KB)
 - **Single-file app**: Everything lives in `index.html` — CSS in `<style>`, JavaScript in `<script>`. No modules, no imports, no bundler.
 - **Database**: Uses [sql.js](https://github.com/sql-js/sql.js) to run SQLite as WebAssembly entirely in-memory. Loaded via `initSqlJs({ locateFile: file => 'assets/' + file })` — relative path is critical.
 - **Persistence**: Database exported to base64 and stored in `localStorage` key `kanban_db`. Uses chunked `String.fromCharCode.apply()` (32KB chunks) to avoid stack overflow on large databases. Theme stored separately in `kanban_theme`.
-- **Schema**: 3 tables — `columns`, `tasks` (with `task_type`: 'epic' or 'task', and `parent_id` for linking tasks), `comments`. Default columns seeded at init: "To Do", "Blocked", "In Progress", "Done". Existing databases are migrated automatically via `migrateTaskSchema()` which adds the new columns with safe defaults.
+- **Schema**: 3 tables — `columns`, `tasks` (with `task_type`: 'epic' or 'task', and `parent_id` for linking tasks), `comments`. Default columns seeded at init: "To Do", "Blocked", "In Progress", "Done".
 
 ## Keyboard Shortcuts
 
