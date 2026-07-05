@@ -1,6 +1,6 @@
 # Kanban Board — Agent Guide
 
-Single-file app (`index.html`, 2661 lines), zero dependencies, no build step. SQLite via sql.js WebAssembly runs in-browser; Node HTTP server serves `.wasm` with correct MIME type and provides disk persistence API endpoints.
+Single-file app (`index.html`, 2710 lines), zero dependencies, no build step. SQLite via sql.js WebAssembly runs in-browser; Node HTTP server serves `.wasm` with correct MIME type and provides disk persistence API endpoints.
 
 ## Run commands
 
@@ -35,7 +35,7 @@ Manual edit-and-refresh only — no build step, no package manager, no lint/type
 
 ## Architecture
 
-- **Single file**: `index.html` (2661 lines) — CSS `<style>`, inline JS, no modules/bundler/package.json.
+- **Single file**: `index.html` (2710 lines) — CSS `<style>`, inline JS, no modules/bundler/package.json.
 - **Database**: sql.js (SQLite WebAssembly) runs in-memory via `initSqlJs({ locateFile: file => 'assets/' + file })`. WASM binary at `assets/sql-wasm.wasm` (~650KB), JS loader at `assets/sql-wasm.js` (~50KB).
 - **Persistence**: DB exported to base64 and saved either via browser File System Access API (HTTPS) or the Node server's `/api/save-db` (HTTP). Labels are stored inside each `.sqlite` file itself (`labels_prefs(key, value TEXT)` table), so different databases have independent label sets. Theme toggle state is persisted per-database as well.
 - **Schema**: 3 main tables + `labels_prefs` — `columns`, `tasks` (`task_type`: 'epic'/'task', `parent_id`: INTEGER, `card_labels`: TEXT, `display_name`: TEXT), `comments`. Default columns ("To Do", "Blocked", "In Progress", "Done") defined in `DEFAULT_COLUMNS`.

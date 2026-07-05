@@ -491,7 +491,6 @@ mark.search-highlight {
 .label-delete-btn:hover { color: #fff; background: var(--danger); border-color: var(--danger); }
 .add-label-row { display: flex; gap: 8px; margin-top: 4px; align-items: center; }
 .add-label-row .btn { flex-shrink: 0; }
-.label-count-badge { font-size: 12px; color: var(--text-secondary); margin-left: auto; padding-right: 4px; }
 
 /* Hidden file inputs */
 .hidden-input { display: none; }
@@ -522,22 +521,6 @@ mark.search-highlight {
   border-color: #5c6170;
 }
 
-/* Toast */
-.toast {
-  position: fixed;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%) translateY(100px);
-  background: #32383f;
-  color: #fff;
-  padding: 12px 24px;
-  border-radius: var(--radius);
-  font-size: 14px;
-  z-index: 999;
-  transition: transform 0.3s ease;
-}
-
-.toast.show { transform: translateX(-50%) translateY(0); }
 
 /* Empty state */
 .empty-column { text-align: center; padding: 20px; color: var(--text-secondary); font-size: 13px; }
@@ -1143,7 +1126,6 @@ async function saveToFile() {
 
 // Simple path utilities (Node's 'path' module doesn't exist in browsers)
 function pathBasename(p) { return p.split('/').filter(Boolean).pop(); }
-function pathDirname(p) { const parts = p.split('/'); parts.pop(); return parts.join('/') || '/'; }
 
 let savedFilePath = null; // Set via POST /api/setup-save or open/save flow
 
@@ -1379,22 +1361,7 @@ function exportDatabase() {
     }).catch(() => {});
   }
 }
-function importDatabase() {
-  if (!confirm('This will replace your current browser database with the imported file. Continue?')) return;
 
-  // If FSA is available, use it directly for a better experience
-  if ('showOpenFilePicker' in window) {
-    document.getElementById('importFileInput').click();
-    return; // wait for handleImport to fire
-  }
-
-  showServerFilePicker('open')
-    .then(() => {
-      // hideSetupDialog is called in handleImport's success path, or here if picker was used directly.
-      setTimeout(hideSetupDialog, 50);
-    })
-    .catch(() => showToast('Unable to open file picker.'));
-}
 
 async function handleImport(event) {
   const file = event.target.files[0];
