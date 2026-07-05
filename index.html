@@ -892,6 +892,8 @@ function renderLabelManagerList() {
     '<div class="add-label-row">' +
       '<input type="text" id="lmNewName" placeholder="new name" onkeypress="if(event.key === \'Enter\') onLabelManagerAdd()"/>' +
       '&nbsp;<span>&mdash;</span>&nbsp;' +
+      '<input type="text" id="lmNewAlias" placeholder="display name (optional)" style="flex:1;min-width:80px;" />' +
+      '&nbsp;<span>&mdash;</span>&nbsp;' +
       '<input type="color" id="lmNewColor" value="#8b5cf6"/>' +
       '<button type="button" class="btn btn-primary" onclick="onLabelManagerAdd()">+ Add</button>' +
     '</div>';
@@ -953,7 +955,8 @@ async function onLabelManagerAdd() {
   }
   if (LABEL_PRESETS.find(l => l.name === newName)) { showToast('A label with that name already exists.'); return; }
 
-  LABEL_PRESETS.push({ name: newName, color: colorInput.value || '#8b5cf6', alias: '' });
+  const aliasInput = document.getElementById('lmNewAlias');
+  LABEL_PRESETS.push({ name: newName, color: colorInput.value || '#8b5cf6', alias: (aliasInput?.value || '').trim() });
     const idx = LABEL_PRESETS.length - 1;
     await syncLabelsToDb();
     _persistLabel(idx);
