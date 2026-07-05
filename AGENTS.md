@@ -12,16 +12,20 @@ pkill -f "node server.js"   # stop
 
 **Node.js required.** Only Node serves `.wasm` with `application/wasm` MIME type (`server.js:14`). Python fallback in `start.sh` fails at runtime.
 
+## Development workflow
+
+Single-file app with **no** build step, no package manager, no lint/typecheck/format scripts. Manual edit-and-refresh in the browser is the entire development cycle. Don't look for test or type scripts — they don't exist.
+
 ## Port quirk
 
 `start.sh` accepts a port arg and passes it to itself, but `server.js` ignores CLI args entirely — it always binds to 8089. The port arg to `start.sh` only affects the startup message, not the actual server.
 
 ## Architecture
 
-- **Single file**: `index.html` (~2229 lines) — CSS `<style>`, inline JS, no modules/bundler/package.json. Manual edit-and-refresh is the workflow.
+- **Single file**: `index.html` (2661 lines) — CSS `<style>`, inline JS, no modules/bundler/package.json. Manual edit-and-refresh is the workflow.
 - **Database**: sql.js (SQLite WebAssembly) runs in-memory via `initSqlJs({ locateFile: file => 'assets/' + file })`. WASM binary at `assets/sql-wasm.wasm` (~650KB), JS loader at `assets/sql-wasm.js` (~50KB).
 - **Persistence**: DB exported to base64 and stored in `localStorage["kanban_db"]`. Uses chunked `String.fromCharCode.apply()` (32KB chunks) to avoid stack overflow. Theme stored separately in `kanban_theme`. Auto-save warns at 80% localStorage quota but does not block writes after that point.
-- **Schema**: 3 tables — `columns`, `tasks` (`task_type`: 'epic'/'task', `parent_id`: INTEGER, `card_labels`: TEXT), `comments`. Default columns ("To Do", "Blocked", "In Progress", "Done") defined in `DEFAULT_COLUMNS`.
+- **Schema**: 3 main tables + `labels_prefs` settings table — `columns`, `tasks` (`task_type`: 'epic'/'task', `parent_id`: INTEGER, `card_labels`: TEXT), `comments`. Default columns ("To Do", "Blocked", "In Progress", "Done") defined in `DEFAULT_COLUMNS`.
 - **Importing** a `.sqlite` file replaces and re-saves the DB — calls `autoSave()` at `handleImport()`. Destructive: current browser DB is overwritten with no undo.
 
 ## Security
@@ -37,7 +41,7 @@ pkill -f "node server.js"   # stop
 - **Column renaming uses native `prompt()` dialog** — no inline editing.
 - **Labels are predefined presets** with customizable colors and display names.
 - **Column management** (rename, reorder, delete) is via right-click context menu.
-- **Search** operates on rendered DOM, not raw DB — debounced at 250ms, filters title + description only. Does **not** auto-clear; user must press Escape to restore the board.
+- **Search** queries DB first (via `renderBoard()`) then filters in-memory, not raw DOM — debounced at 250ms, filters title + description only. Does **not** auto-clear; user must press Escape to restore the board.
 - **Delete cascades children recursively** — `deleteTaskCascade()` walks the full tree depth-first. Both `deleteTaskFromModal()` and `quickDelete()` use it. Does NOT delete tasks that become orphaned via `ON DELETE SET NULL` (great-grandchildren of a deleted task stay).
 - **Enter in the task title input saves** the task instead of just adding whitespace.
 
@@ -63,3 +67,4 @@ Comment editor state is gated by the `commentEditorOpen` flag; Escape cancels an
 | `Ctrl+K` / `Cmd+K` | Focus search box |
 | `Ctrl+T` / `Cmd+T` | Toggle dark/light theme |
 | `Escape` | Close modals, context menus, cancel comment editor; clears search box if focused |
+

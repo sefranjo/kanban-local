@@ -8,14 +8,16 @@ if command -v node &>/dev/null; then
   nohup node server.js > /tmp/kanban-server.log 2>&1 &
   SERVER_PID=$!
 elif command -v python3 &>/dev/null; then
-  PORT=${1:-8089}
-  echo "Starting server on http://localhost:$PORT"
-  nohup python3 -m http.server "$PORT" > /tmp/kanban-server.log 2>&1 &
+    echo "Warning: python server has no API support — save/open features will not work." >&2
+    PORT=${1:-8089}
+    echo "Starting server on http://localhost:$PORT"
+    nohup python3 -m http.server "$PORT" > /tmp/kanban-server.log 2>&1 &
   SERVER_PID=$!
 elif command -v python &>/dev/null; then
-  PORT=${1:-8080}
-  echo "Starting server on http://localhost:$PORT"
-  nohup python -m SimpleHTTPServer "$PORT" > /tmp/kanban-server.log 2>&1 &
+    echo "Warning: python server has no API support — save/open features will not work." >&2
+    PORT=${1:-8080}
+    echo "Starting server on http://localhost:$PORT"
+    nohup python -m SimpleHTTPServer "$PORT" > /tmp/kanban-server.log 2>&1 &
   SERVER_PID=$!
 else
   echo "Error: Neither Node.js nor Python found. Install one to run this server."

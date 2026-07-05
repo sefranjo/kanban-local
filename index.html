@@ -485,6 +485,18 @@ mark.search-highlight {
 /* Hidden file inputs */
 .hidden-input { display: none; }
 
+/* Picker modal styles */
+.picker-row {
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 15px;
+}
+.picker-row:hover { background: var(--hover); }
+.picker-folder .picker-label::before { content: '📁 '; }
+.picker-file .picker-label::before { content: '📄 '; }
+.picker-parent { color: var(--text-secondary); font-size: 13px; }
+
 /* Drag placeholder */
 .card-placeholder {
   background: rgba(0,0,0,0.1);
@@ -543,12 +555,62 @@ mark.search-highlight {
   </div>
   <div class="topbar-right">
     <button class="btn btn-secondary" onclick="newDatabase()">New</button>
-    <button class="btn btn-secondary" onclick="importDatabase()">Open .sqlite</button>
+    <button class="btn btn-secondary" onclick="openExistingDatabase()">Open .sqlite</button>
     <button class="btn btn-primary" onclick="exportDatabase()">Save .sqlite</button>
     <input type="file" id="importFileInput" class="hidden-input" accept=".sqlite,.db" onchange="handleImport(event)">
-    <button class="btn btn-secondary" onclick="showStorageInfo()" title="View storage usage">&#x267E;</button>
     <button class="btn btn-secondary" id="themeToggle" onclick="toggleTheme()" title="Toggle theme (Ctrl+T)">🌙</button>
     <button class="btn btn-secondary" onclick="openLabelManager()" title="Manage labels">&#x1F3A8;</button>
+  </div>
+</div>
+
+<!-- Database Setup Dialog (shown on first load) -->
+<div class="modal-overlay active" id="setupDialog">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <h2>Kanban Board</h2>
+    </div>
+    <div class="modal-body" style="text-align:center; padding-top:16px;">
+      <p style="color:var(--text-secondary); margin-bottom:8px;">Choose a database to start with:</p>
+      <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+        <button class="btn btn-primary" onclick="createNewDatabase().catch(e => console.error('createNewDatabase:', e))" style="min-width:160px;">Create new database</button>
+        <button class="btn btn-secondary" onclick="openExistingDatabase().catch(e => console.error('openExistingDatabase:', e))" style="min-width:160px;">Open existing .sqlite</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Restore from buffer — removed (no longer used) -->
+
+
+<!-- Server file picker modal -->
+<div class="modal-overlay" id="serverFilePickerModal">
+  <div class="modal" style="max-width:500px; max-height:70vh;">
+    <div class="modal-header">
+      <h2 id="pickerTitle">Select .sqlite file</h2>
+      <button class="modal-close" onclick="closeServerFilePicker()" >&times;</button>
+    </div>
+    <div class="modal-body" style="display:flex; flex-direction:column;">
+      <!-- Path input -->
+      <div class="form-group" style="margin-bottom:10px;">
+        <input type="text" id="pickerPathInput" class="form-input" placeholder="/home/user/kanban.sqlite">
+      </div>
+      
+      <!-- Breadcrumb + button row -->
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+        <span id="pickerBreadcrumb" style="color:var(--text-secondary); font-size:14px;"></span>
+        <button class="btn btn-secondary btn-sm" onclick="closeServerFilePicker()">Cancel</button>
+      </div>
+
+      <!-- File list (scrollable) -->
+      <div id="pickerList" style="flex:1; overflow-y:auto; border:1px solid var(--border); padding:4px 8px;">
+        <p style="color:var(--text-secondary)">Loading...</p>
+      </div>
+
+      <!-- Footer buttons (Save mode only) -->
+      <div id="pickerSaveBtns" style="display:none; margin-top:10px; text-align:right;">
+        <button class="btn btn-primary" onclick="confirmPicker()">Open / Save as...</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -651,7 +713,7 @@ mark.search-highlight {
     </div>
     <div class="modal-body">
       <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;">Each label has a name (used internally), a display alias, and a color. Renaming or deleting a label will update all existing tasks that use it.</p>
-      <div id="labelManagerList"></div>
+      <div id="label-manager-list"></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeLabelManager()">Close</button>
@@ -677,16 +739,18 @@ let savingDetails = false;
 let _detailOrigTitle = '';
 let _detailOrigDesc = '';
 
-let LABEL_PRESETS = loadLabels() || [
-  { name: 'bug', color: '#eb5a46', alias: '' },
-  { name: 'feature', color: '#0079bf', alias: '' },
-  { name: 'improvement', color: '#28a745', alias: '' },
-  { name: 'documentation', color: '#c0392b', alias: '' },
-  { name: 'design', color: '#9b59b6', alias: '' },
-  { name: 'urgent', color: '#e74c3c', alias: '' },
-  { name: 'review', color: '#f39c12', alias: '' },
-  { name: 'testing', color: '#1abc9c', alias: '' }
+const DEFAULT_LABELS = [
+    { name: 'bug', color: '#eb5a46', alias: '' },
+    { name: 'feature', color: '#0079bf', alias: '' },
+    { name: 'improvement', color: '#28a745', alias: '' },
+    { name: 'documentation', color: '#c0392b', alias: '' },
+    { name: 'design', color: '#9b59b6', alias: '' },
+    { name: 'urgent', color: '#e74c3c', alias: '' },
+    { name: 'review', color: '#f39c12', alias: '' },
+    { name: 'testing', color: '#1abc9c', alias: '' }
 ];
+
+let LABEL_PRESETS = [...DEFAULT_LABELS];
 
 var TOOLBAR_HTML = [
   '<button type="button" onclick="execCmd(\'bold\')" title="Bold"><b>B</b></button>',
@@ -705,22 +769,254 @@ function populateToolbar() {
   });
 }
 
-function loadLabels() {
+// ========== LABEL PERSISTENCE (per-database, stored in SQLite) ==========
+
+async function seedLabelsIfMissing() {
+    try {
+        const stored = await loadLabelPrefs();
+        if (stored?.length) LABEL_PRESETS = stored;
+    } catch(e) { LABEL_PRESETS = [...DEFAULT_LABELS]; }
+    
+    try { saveLabelPrefs(LABEL_PRESETS); } catch(e) {}
+}
+
+async function loadLabelPrefs() {
+  if (!db) return null;
   try {
-    const raw = localStorage.getItem('kanban_labels');
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch(e) { return null; }
+    const result = db.exec("SELECT value FROM labels_prefs WHERE key = 'kanban_labels'");
+    if (result.length === 0 || !result[0].values.length) return null;
+    return JSON.parse(result[0].values[0][0]);
+  } catch(_) { return null; }
 }
 
 function saveLabelPrefs(presets) {
-  localStorage.setItem('kanban_labels', JSON.stringify(presets));
+  try {
+    if (!db) return; // no DB yet — will persist once opened
+    // Ensure the settings table exists, then upsert.
+    db.run("CREATE TABLE IF NOT EXISTS labels_prefs (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')");
+    db.run("INSERT OR REPLACE INTO labels_prefs (key, value) VALUES (?, ?)", ['kanban_labels', JSON.stringify(presets)]);
+  } catch(e) { console.error('[saveLabelPrefs] error:', e.message); }
 }
 
-function seedLabelsIfMissing() {
-  if (localStorage.getItem('kanban_labels')) return;
-  const seeded = LABEL_PRESETS.map(l => ({ name: l.name, color: l.color }));
-  saveLabelPrefs(seeded);
+// ========== LABELS EDITOR (label manager) ==========
+
+function closeLabelManager() {
+  const modal = document.getElementById('labelManagerModal');
+  if (modal) modal.classList.remove('active');
+}
+
+function openLabelManager() {
+  renderLabelManagerList();
+  const modal = document.getElementById('labelManagerModal');
+  if (modal) {
+    modal.classList.add('active');
+    // If there are more than a few labels, show the scrollable list.
+  }
+}
+
+function renderLabelManagerList() {
+  const container = document.getElementById('label-manager-list');
+  if (!container) return;
+
+  let html = '';
+
+  for (const [i, l] of LABEL_PRESETS.entries()) {
+    html += '<div class="label-manager-row">' +
+      '<input type="text" id="lmName_' + i + '" value="' + escapeHtml(l.name) + '" onchange="onLabelManagerNameChange(' + i + ')" placeholder="name" style="width:120px;"/>' +
+      '&nbsp;<span>—</span>&nbsp;' +
+      '<input type="text" id="lmAlias_' + i + '" value="' + escapeHtml(l.alias) + '" onchange="onLabelManagerAliasChange(' + i + ')" placeholder="display name (optional)" style="width:180px;"/>' +
+      '&nbsp;<span>—</span>&nbsp;' +
+      '<input type="color" id="lmColor_' + i + '" value="' + escapeHtml(l.color) + '" onchange="onLabelManagerColorChange(this,' + i + ')" style="width:36px;"/>' +
+    '</div>';
+  }
+
+  container.innerHTML = html +
+    '<hr/>' +
+    '<div class="label-manager-add">' +
+      '<input type="text" id="lmNewName" placeholder="new name" style="width:120px;" onkeypress="if(event.key === \'Enter\') onLabelManagerAdd()"/>' +
+      '&nbsp;<input type="color" id="lmNewColor" value="#8b5cf6"/>' +
+      '<button type="button" class="btn btn-secondary" onclick="onLabelManagerAdd()">+ Add</button>' +
+    '</div>';
+
+  // Update count badge.
+  var badge = document.getElementById('label-manager-count');
+  if (badge) badge.textContent = LABEL_PRESETS.length + ' label(s)';
+}
+
+// ========== END OF LABELS EDITOR ==========
+
+// Persist label changes (name, alias, or color). Always write to prefs + auto-save.
+function _persistLabel(index) {
+    saveLabelPrefs(LABEL_PRESETS);
+    autoSave();
+}
+
+function onLabelManagerColorChange(input, index) {
+    LABEL_PRESETS[index].color = input.value;
+    _persistLabel(index);
+}
+
+async function onLabelManagerNameChange(index) {
+  const newName = document.getElementById('lmName_' + index).value.trim().toLowerCase();
+  if (!newName) return;
+  const oldName = LABEL_PRESETS[index].name;
+  if (oldName !== newName && !isValidLabelName(newName)) {
+    renderLabelManagerList();
+    showToast('Label name must start with a letter, use only letters/numbers/hyphens.');
+    return;
+  }
+  LABEL_PRESETS[index].name = newName;
+    await syncLabelsToDb().catch(() => {});
+    _persistLabel(index);
+    showToast('Label updated.');
+}
+
+async function onLabelManagerAliasChange(index) {
+    LABEL_PRESETS[index].alias = document.getElementById('lmAlias_' + index).value.trim();
+    _persistLabel(index);
+}
+
+async function onLabelManagerDelete(index) {
+  const labelName = LABEL_PRESETS[index].name;
+  if (!confirm('Remove the "' + getLabelDisplayName(labelName) + '" label? Tasks using this label will have it removed.')) return;
+  LABEL_PRESETS.splice(index, 1);
+    await syncLabelsToDb();
+}
+
+async function onLabelManagerAdd() {
+  const nameInput = document.getElementById('lmNewName');
+  const colorInput = document.getElementById('lmNewColor');
+  let newName = (nameInput.value || '').trim().toLowerCase();
+  if (!newName) { showToast('Enter a label name.'); return; }
+  if (!/^[a-z][a-z0-9-]*$/.test(newName)) {
+    showToast('Label name must start with a letter and contain only letters, numbers, or hyphens.');
+    return;
+  }
+  if (LABEL_PRESETS.find(l => l.name === newName)) { showToast('A label with that name already exists.'); return; }
+
+  LABEL_PRESETS.push({ name: newName, color: colorInput.value || '#8b5cf6', alias: '' });
+    const idx = LABEL_PRESETS.length - 1;
+    await syncLabelsToDb();
+    _persistLabel(idx);
+    renderLabelManagerList();
+}
+
+async function saveLabelManager() {
+  // Validate all names
+  const seen = new Set();
+  for (const l of LABEL_PRESETS) {
+    if (!/^[a-z][a-z0-9-]*$/.test(l.name)) {
+      showToast('Invalid label name: "' + l.name + '". Must start with a letter, letters/numbers/hyphens only.');
+      renderLabelManagerList();
+      return;
+    }
+    if (seen.has(l.name) && !l.alias.trim()) {
+      showToast('Duplicate label names are not allowed without an alias.');
+      renderLabelManagerList();
+      return;
+    }
+    seen.add(l.name);
+  }
+
+  try { await syncLabelsToDb(); } catch(e) { console.error('[saveLabelManager] sync error:', e.message); }
+    _persistLabel(LABEL_PRESETS.length - 1);
+  closeLabelManager();
+  renderBoard();
+  showToast('Labels saved and tasks updated.');
+}
+
+async function syncLabelsToDb() {
+  if (!db) return;
+  try {
+    const stored = await loadLabelPrefs();
+    if (!stored || !stored.length) { saveLabelPrefs(LABEL_PRESETS); return; }
+
+    // Detect changes between stored and current label presets.
+    // Challenge: deletions cause subsequent items to shift indices, which can look like renames.
+    // Heuristic for structural shifts: when old name vanished from its index but a DIFFERENT entry
+    // at that same CURRENT index has the SAME color — items shifted down because something above was deleted.
+
+    const renameMap = {};
+    for (let i = 0; i < Math.min(stored.length, LABEL_PRESETS.length); i++) {
+      if (stored[i].name === LABEL_PRESETS[i].name) continue; // no change at this position
+      const oldName = stored[i].name;
+
+      // Only check when the old name truly vanished from the entire current set
+      if (LABEL_PRESETS.find(p => p.name === oldName)) continue;
+
+      // Check: does another item in CURRENT share the same color as stored[i]?
+      // If yes → this item likely just shifted down after a deletion above it. Skip.
+      const otherEntries = LABEL_PRESETS.filter(
+        (p, idx) => idx !== i && p.color === stored[i].color
+      );
+      if (otherEntries.length > 0) {
+        continue; // structural shift from earlier deletion
+      }
+
+      renameMap[oldName] = LABEL_PRESETS[i].name; // genuine rename attempt
+    }
+
+    // Labels genuinely removed (exist in stored but nowhere in current)
+    const deletedLabels = [];
+    for (const item of stored) {
+      if (!LABEL_PRESETS.find(p => p.name === item.name)) {
+        deletedLabels.push(item.name);
+      }
+    }
+
+    // New items beyond stored length (additions or re-added old names).
+    // Mark them with null to avoid trying to find an old-name match.
+    for (let i = stored.length; i < LABEL_PRESETS.length; i++) {
+      const curName = LABEL_PRESETS[i].name;
+      if (!renameMap[curName]) {
+        renameMap[curName] = null; // not a rename of anything existing
+      }
+    }
+
+    // Update task card_labels in DB
+    const tasks = db.exec("SELECT id, card_labels FROM tasks WHERE card_labels IS NOT NULL AND card_labels != ''");
+    if (tasks.length === 0) { saveLabelPrefs(LABEL_PRESETS); return; }
+
+    let updatedCount = 0;
+    for (const row of tasks[0].values) {
+      const taskId = row[0];
+      const labelsStr = typeof row[1] === 'string' ? row[1] : '';
+      if (!labelsStr.trim()) continue;
+      let newLabels = labelsStr.split(',').map(s => s.trim()).filter(Boolean);
+
+      // Apply renames (oldName -> newName)
+      for (const [oldName, newName] of Object.entries(renameMap)) {
+        const idx = newLabels.indexOf(oldName);
+        if (idx !== -1 && newName) {
+          newLabels[idx] = newName;
+        }
+      }
+
+      // Remove deleted labels
+      for (const del of deletedLabels) {
+        newLabels = newLabels.filter(l => l !== del);
+      }
+
+      const newStr = newLabels.join(', ');
+      if (newStr !== labelsStr) {
+        db.run("UPDATE tasks SET card_labels = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [newStr, taskId]);
+        updatedCount++;
+      }
+    }
+
+    saveLabelPrefs(LABEL_PRESETS);
+
+    if (updatedCount > 0) {
+      console.log('Updated ' + updatedCount + ' task label references.');
+    } else {
+      console.log('Labels synced to DB. Task cards will reflect changes on re-render.');
+    }
+
+    autoSave();   // persist changes back to disk when applicable
+  } catch(e) {
+    console.error('syncLabelsToDb error:', e);
+    saveLabelPrefs(LABEL_PRESETS);
+   }
 }
 
 const DEFAULT_COLUMNS = [
@@ -741,19 +1037,9 @@ async function init() {
     return;
   }
 
-  const saved = localStorage.getItem('kanban_db');
-  if (saved) {
-    try {
-      const buf = new Uint8Array(base64ToArrayBuffer(saved));
-      db = new SQL.Database(buf);
-      seedLabelsIfMissing();
-      renderBoard();
-      return;
-    } catch (e) { /* ignore corrupted save */ }
-  }
-
-  initNewDB();
+  openDatabaseSetup();
 }
+
 
 function initNewDB() {
   db = new SQL.Database();
@@ -762,83 +1048,138 @@ function initNewDB() {
     db.run("CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, column_id INTEGER NOT NULL REFERENCES columns(id), title TEXT NOT NULL, description TEXT DEFAULT '', task_type TEXT DEFAULT 'task' CHECK(task_type IN ('epic', 'task')), parent_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL, card_labels TEXT DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
     db.run("CREATE TABLE comments (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, body TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
 
-    // Seed default columns using direct SQL to avoid parameter binding issues
-    db.run("INSERT INTO columns (id, title, sort_order) VALUES (1, 'To Do', 0)");
-    db.run("INSERT INTO columns (id, title, sort_order) VALUES (2, 'Blocked', 1)");
-    db.run("INSERT INTO columns (id, title, sort_order) VALUES (3, 'In Progress', 2)");
-    db.run("INSERT INTO columns (id, title, sort_order) VALUES (4, 'Done', 3)");
+    // Seed default columns using dynamic IDs to avoid collisions on partially-initialized databases.
+    db.run("INSERT INTO columns (id, title, sort_order) SELECT COALESCE(MAX(id), 0) + 1, 'To Do', 0 FROM columns");
+    db.run("INSERT INTO columns (id, title, sort_order) SELECT COALESCE(MAX(id), 0) + 1, 'Blocked', 1 FROM columns");
+    db.run("INSERT INTO columns (id, title, sort_order) SELECT COALESCE(MAX(id), 0) + 1, 'In Progress', 2 FROM columns");
+    db.run("INSERT INTO columns (id, title, sort_order) SELECT COALESCE(MAX(id), 0) + 1, 'Done', 3 FROM columns");
 
-    autoSave();
     seedLabelsIfMissing();
     renderBoard();
+
   } catch (e) {
     console.error('initNewDB failed:', e);
     throw e;
   }
 }
-
-// ========== PERSISTENCE ==========
-let storageWarningShown = false;
-
-function getStorageUsage() {
+let savedFileHandle = null; // FileHandle from showSaveFilePicker, set once after create/open
+async function saveToFile() {
+  if (!savedFileHandle) return false;
   try {
-    if (navigator.storage && navigator.storage.estimate) {
-      return navigator.storage.estimate().then(est => ({ used: est.usage, quota: est.quota }));
-    }
-    // Fallback: estimate from localStorage directly
-    let total = 0;
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      total += (key.length + localStorage.getItem(key).length) * 2; // UTF-16 chars
-    }
-    return Promise.resolve({ used: total, quota: 5 * 1024 * 1024 });
-  } catch {
-    return Promise.resolve({ used: 0, quota: 5 * 1024 * 1024 });
+    const writable = await savedFileHandle.createWritable();
+    await writable.write(getDBBytes());
+    await writable.close();
+    showToast('Saved to ' + savedFileHandle.name);
+    return true;
+  } catch (e) {
+    console.error('[saveToFile] Failed:', e);
+    showToast('Failed to save: ' + e.message);
+    savedFileHandle = null; // clear so future saves don't keep failing
+    return false;
   }
 }
 
-function estimateBase64Size(bytes) {
-  // Roughly: base64 = ceil(raw/3)*4 bytes, so ~1.37x raw size
-  return Math.ceil((bytes / 3) * 4);
+// Simple path utilities (Node's 'path' module doesn't exist in browsers)
+function pathBasename(p) { return p.split('/').filter(Boolean).pop(); }
+function pathDirname(p) { const parts = p.split('/'); parts.pop(); return parts.join('/') || '/'; }
+
+let savedFilePath = null; // Set via POST /api/setup-save or open/save flow
+
+async function autoSave() {
+  if (savedFileHandle) return saveToFile();
+  if (!savedFilePath) return false; // no target set yet — wait for user to pick one
+  return saveViaServer();
 }
 
-async function showStorageInfo() {
-  try {
-    const info = await getStorageUsage();
-    const kb = (info.used / 1024).toFixed(1);
-    const mb = (info.used / (1024 * 1024)).toFixed(2);
-    const limitMb = (info.quota / (1024 * 1024)).toFixed(0);
-    showToast('Storage used: ' + (info.used > 1048576 ? mb + ' MB' : kb + ' KB') + ' of ~' + limitMb + ' MB');
-  } catch {
-    showToast('Could not measure storage usage.');
-  }
+async function fetchJson(url, options = {}) {
+  return fetch(url, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    redirect: 'manual'
+  }).catch(e => { console.error('[fetch]', e.message); throw e; });
 }
 
-function autoSave() {
+async function saveViaServer() {
+  if (!savedFilePath) return false; // no path set yet
   try {
     const bytes = getDBBytes();
-    const b64Size = estimateBase64Size(bytes);
-    const currentStored = (localStorage.getItem('kanban_db') || '').length;
-    const estimatedTotal = currentStored + b64Size;
-
-    // Pre-flight warning at 80% of typical quota
-    if (!storageWarningShown && estimatedTotal > 4.5 * 1024 * 1024) {
-      storageWarningShown = true;
-      showToast('Storage nearly full — please export your database as backup.');
-    }
-
-    localStorage.setItem('kanban_db', arrayBufferToBase64(bytes));
-  } catch (e) {
-    if (e.name === 'QuotaExceededError' || e.code === 22) {
-      showToast('Storage full! Please export your database immediately — new changes will not be saved.');
+    const b64 = arrayBufferToBase64(bytes);
+    
+    console.log('[saveViaServer] saving', bytes.length, 'bytes to', savedFilePath);
+    const res = await fetchJson('/api/save-db', {
+      method: 'POST',
+      headers: { 'X-Target-Path': savedFilePath },
+      body: JSON.stringify({ data: b64 })
+    });
+    const result = await res.json();
+    
+    if (res.status === 200) {
+      showToast('Saved to disk');
+      console.log('[saveViaServer] OK, wrote ' + result.bytesWritten + ' bytes');
+      return true;
     } else {
-      console.error('Auto-save failed:', e);
+      console.error('[saveViaServer] API error:', result);
+      throw new Error(result.error || 'Save failed (server returned ' + res.status + ')');
     }
+  } catch (e) {
+    console.error('[saveViaServer] Failed to save via server:', e.message);
+    showToast('Auto-save to disk failed: ' + (e.message.slice(0, 60)));
+    return false;
   }
 }
 
-function clearStorageWarning() {
-  storageWarningShown = false;
+async function openDatabaseViaServer(filePath) {
+  try {
+    console.log('[openDatabaseViaServer] Opening', filePath);
+    const res = await fetchJson('/api/open-file', {
+      method: 'POST',
+      headers: { 'X-Target-Path': filePath },
+      body: JSON.stringify({ path: filePath })
+    });
+    
+    if (res.status !== 200) {
+      const errText = await res.text();
+      throw new Error(errText.slice(0, 128));
+    }
+
+    // Read response bytes directly into SQL.Database
+    const buf = new Uint8Array(await res.arrayBuffer());
+
+    db = new SQL.Database(buf);
+    await seedLabelsIfMissing();
+    renderBoard();
+    
+    // Establish the write target so subsequent autoSave calls use server endpoint
+    return setupSaveTarget(filePath)
+      .then(ok => { if (!ok) throw new Error('Unable to establish save path'); })
+      .then(() => true);
+  } catch (e) {
+    console.error('[openDatabaseViaServer] Failed:', e.message);
+    showToast('Failed to open file: ' + e.message.slice(0, 80));
+    return false;
+  }
+}
+
+async function setupSaveTarget(filePath) {
+  try {
+    const res = await fetchJson('/api/setup-save', {
+      method: 'POST',
+      headers: { 'X-Target-Path': filePath },
+      body: JSON.stringify({ path: filePath })
+    });
+    if (res.status !== 200) {
+      console.error('[setupSaveTarget] API error:', res);
+      return false;
+    }
+    const result = await res.json();
+    savedFilePath = result.path || filePath;
+    showToast('Auto-save enabled for ' + pathBasename(savedFilePath));
+    return true;
+  } catch (e) {
+    console.error('[setupSaveTarget] Failed:', e.message);
+    showToast('Unable to establish auto-save: ' + e.message.slice(0, 80));
+    return false;
+  }
 }
 
 // ========== DB HELPERS ==========
@@ -848,35 +1189,109 @@ function getDBBytes() {
 
 function arrayBufferToBase64(buffer) {
   var bytes = new Uint8Array(buffer);
-  var chunkSize = 0x8000; // 32KB chunks to avoid stack overflow
   var binary = '';
-  for (var i = 0; i < bytes.length; i += chunkSize) {
-    var chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
-    binary += String.fromCharCode.apply(null, chunk);
+  for (var i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
   }
   return btoa(binary);
-}
-
-function base64ToArrayBuffer(base64) {
-  var binaryString = atob(base64);
-  var len = binaryString.length;
-  var bytes = new Uint8Array(len);
-  for (var i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes.buffer;
 }
 
 function newDatabase() {
   if (!confirm('Create a new database? All current data will be lost unless saved to .sqlite first.')) return;
   try {
-    if (!dbReady) { showToast('Loading database, please wait...'); return; }
-    localStorage.removeItem('kanban_db');
-    initNewDB();
-    showToast('New database created!');
+    createNewDatabase();
   } catch (e) {
     console.error('Failed to create new database:', e);
     showToast('Error creating database.');
+  }
+}
+
+async function openDatabaseSetup() {
+  const dialog = document.getElementById('setupDialog');
+  if (!dialog) return;
+  await seedLabelsIfMissing();
+}
+
+function hideSetupDialog() {
+  const dialog = document.getElementById('setupDialog');
+  if (dialog) {
+    dialog.classList.remove('active');
+  }
+}
+
+async function createNewDatabase() {
+  initNewDB();
+  
+  try {
+    if ('showSaveFilePicker' in window) {
+      const handle = await showSaveFilePicker({
+        suggestedName: 'kanban_' + new Date().toISOString().slice(0, 10) + '.sqlite',
+        types: [{
+          description: 'SQLite Database',
+          accept: { 'application/x-sqlite3': ['.sqlite'] }
+        }]
+      });
+      savedFileHandle = handle;
+      await saveToFile();
+    } else if ('showOpenFilePicker' in window) {
+      // FSA read-only: create DB, prompt for location, then download (can't auto-save to arbitrary path).
+      showServerFilePicker('save-new')
+        .then(() => exportDatabase())
+        .catch(() => {});
+      hideSetupDialog();
+      return;
+    } else {
+      // No FSA at all — use server file picker for a proper save.
+      await showServerFilePicker('save-new');
+      hideSetupDialog();
+      return;
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return; // user cancelled
+    console.error('Failed to create database file:', e.message || e);
+    showToast('Failed to save database: ' + e.message?.slice(0, 128));
+    hideSetupDialog();
+    return;
+  }
+
+  if (!savedFileHandle) {
+    console.error('saveToFile completed but savedFileHandle is null');
+    showToast('Error saving database. Please try again.');
+    hideSetupDialog();
+    return;
+  }
+  
+  hideSetupDialog();
+}
+
+async function openExistingDatabase() {
+  const hasFSA = typeof showSaveFilePicker === 'function' || typeof showOpenFilePicker === 'function';
+
+  if (hasFSA) {
+    // FSA is available — use the file picker (works only on HTTPS).
+    try {
+      const [handle] = await showOpenFilePicker({
+        types: [{
+          description: 'SQLite Database',
+          accept: { 'application/x-sqlite3': ['.sqlite'] }
+        }]
+      });
+      savedFileHandle = handle;
+      const buf = new Uint8Array(await handle.getFile().arrayBuffer());
+
+      db = new SQL.Database(buf);
+      await seedLabelsIfMissing();
+      renderBoard();
+
+      showToast('Database loaded!');
+    } catch (pickerErr) {
+      if (pickerErr?.name === 'AbortError') return;
+      console.error('[openDB] FSA picker failed:', pickerErr.message || pickerErr);
+      showToast('Unable to open file via File API.');
+    }
+  } else {
+    // No FSA at all — use Node.js server for reading (works over HTTP).
+    await showServerFilePicker('open');
   }
 }
 
@@ -886,36 +1301,273 @@ function exportDatabase() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'kanban_' + new Date().toISOString().slice(0, 10) + '.sqlite';
+  a.download = savedFileHandle ? savedFileHandle.name : 'kanban_' + new Date().toISOString().slice(0, 10) + '.sqlite';
   a.click();
   URL.revokeObjectURL(url);
-  showToast('Database saved!');
-}
+  showToast('Database exported!');
 
+  // Establish FSA handle so future auto-saves can write back
+  if ('showSaveFilePicker' in window && !savedFileHandle) {
+    showSaveFilePicker({
+      suggestedName: a.download,
+      types: [{ description: 'SQLite Database', accept: { 'application/x-sqlite3': ['.sqlite'] } }]
+    }).then(handle => {
+      savedFileHandle = handle;
+      showToast('Auto-save enabled for ' + handle.name);
+    }).catch(() => {});
+  }
+}
 function importDatabase() {
   if (!confirm('This will replace your current browser database with the imported file. Continue?')) return;
-  document.getElementById('importFileInput').click();
+
+  // If FSA is available, use it directly for a better experience
+  if ('showOpenFilePicker' in window) {
+    document.getElementById('importFileInput').click();
+    return; // wait for handleImport to fire
+  }
+
+  showServerFilePicker('open')
+    .then(() => {
+      // hideSetupDialog is called in handleImport's success path, or here if picker was used directly.
+      setTimeout(hideSetupDialog, 50);
+    })
+    .catch(() => showToast('Unable to open file picker.'));
 }
 
-function handleImport(event) {
+async function handleImport(event) {
   const file = event.target.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = function (e) {
+  reader.onload = async function (e) {
     try {
-      clearStorageWarning();
-      const buf = new Uint8Array(e.target.result);
-      db = new SQL.Database(buf);
-      seedLabelsIfMissing();
-      autoSave();
-      renderBoard();
-      showToast('Database loaded!');
+       const buf = new Uint8Array(e.target.result);
+       db = new SQL.Database(buf);
+       await seedLabelsIfMissing();
+       renderBoard();
+
+       // Try to establish FSA handle for auto-save (works on HTTPS).
+       if ('showSaveFilePicker' in window) {
+         try {
+           const handle = await showSaveFilePicker({
+             suggestedName: file.name,
+             types: [{
+               description: 'SQLite Database',
+               accept: { 'application/x-sqlite3': ['.sqlite'] }
+             }]
+           });
+           savedFileHandle = handle;
+           showToast('Auto-save enabled for ' + savedFileHandle.name);
+         } catch (saErr) {
+           // FSA save failed — this is HTTP context.
+           console.error('[handleImport] showSaveFilePicker failed:', saErr.message || saErr);
+           const isHttps = location.protocol === 'https:';
+           if (!isHttps) {
+             showToast('Auto-save unavailable (HTTP). Use "Save .sqlite" after each session.');
+           } else {
+             showToast('Unable to open file for writing. Use "Save .sqlite" after each session.');
+           }
+         }
+       } else {
+         // No FSA at all — HTTP context, auto-save unavailable via client APIs.
+        const isHttps = location.protocol === 'https:';
+        if (!isHttps) {
+          showToast('Auto-save unavailable (HTTP). Use "Save .sqlite" after each session.');
+        } else {
+          showToast('File API not available — use "Save .sqlite" after each session.');
+        }
+      }
+
+      hideSetupDialog();
       event.target.value = '';
     } catch (err) {
+      console.error('[handleImport] Error loading database:', err);
       showToast('Error loading database file.');
+      hideSetupDialog();
+      event.target.value = '';
     }
   };
   reader.readAsArrayBuffer(file);
+}
+
+// ========== SERVER-BASED FILE PICKER (replaces FSA on HTTP) ==========
+let _pickerMode = 'open'; // 'open' or 'save-new'
+let _pickerCurrentDir = '';
+
+async function showServerFilePicker(mode, suggestedPath) {
+  const modal = document.getElementById('serverFilePickerModal');
+  const title = document.getElementById('pickerTitle');
+  const pathInput = document.getElementById('pickerPathInput');
+  const listEl = document.getElementById('pickerList');
+  const saveBtns = document.getElementById('pickerSaveBtns');
+
+  _pickerMode = mode;
+
+  if (mode === 'open') {
+    title.textContent = 'Select .sqlite file';
+    try { 
+      const r2 = await fetchJson('/api/list?path=');
+      _pickerCurrentDir = (await r2.json()).path || '/';
+    } catch(_) {}
+    pathInput.value = (_pickerCurrentDir === '/' ? '' : _pickerCurrentDir);
+  } else { // save-new
+    title.textContent = 'Save new database as...';
+    const today = new Date().toISOString().slice(0, 10);
+    try { 
+      const r2 = await fetchJson('/api/list?path=');
+      _pickerCurrentDir = (await r2.json()).path || '/';
+    } catch(_) {}
+    pathInput.value = _pickerCurrentDir.replace(/\/+$/, '') + '/kanban_' + today + '.sqlite';
+  }
+
+  saveBtns.style.display = (mode === 'open') ? 'none' : 'block';
+  modal.classList.add('active');
+  
+  renderPickerList(_pickerCurrentDir);
+  return true; // signal that the picker was shown and confirmed via confirmPicker() callback flow
+}
+
+function closeServerFilePicker() {
+  document.getElementById('serverFilePickerModal').classList.remove('active');
+}
+
+async function renderPickerList(dirPath) {
+  _pickerCurrentDir = dirPath;
+  const listEl = document.getElementById('pickerList');
+  try {
+    // Normalize: empty means home dir, otherwise prepend leading slash if missing
+    let apiPath = encodeURIComponent(dirPath || '');
+    if (apiPath && !dirPath.startsWith('/')) apiPath = encodeURIComponent('/' + dirPath);
+    
+    const res = await fetchJson('/api/list?path=' + apiPath);
+    const data = await res.json();
+
+    if (!res.ok) {
+      listEl.innerHTML = '<p style="color:red; padding:12px;">Error: ' + escapeHtml(data.error || 'unknown') + '</p>';
+      return;
+    }
+
+    let html = '';
+
+    // "Go up" row (except at root)
+    if (dirPath && dirPath !== '/') {
+      const parent = dirPath.replace(/\/+$/, '').replace(/\/[^\/]+$/, '');
+      html += '<div class="picker-row picker-parent" data-path="' + escapeHtml(parent) + '" onclick="navigatePicker(\'..\')"><span>⬆ Parent</span></div>';
+    }
+
+    // List entries sorted: dirs first, then files
+    const dirs = [];
+    const files = [];
+    for (const e of data.entries || []) {
+      if (e.isDirectory) dirs.push(e.name);
+      else files.push(e.name);
+    }
+
+    const sortedDirs = dirs.sort();
+    const sortedFiles = files.filter(f => /\.sqlite$|\.db$/i.test(f)).sort();
+
+    for (const d of sortedDirs) {
+      html += '<div class="picker-row picker-folder" data-path="' + escapeHtml(d) + '" onclick="navigatePicker(\'' + escapeHtml(d).replace(/'/g, "\\'") + '\')"><span>📁 ' + escapeHtml(d) + '</span></div>';
+    }
+
+    for (const f of sortedFiles) {
+      html += '<div class="picker-row picker-file" data-filename="' + escapeHtml(f) + '" onclick="selectPickerFile(\'' + escapeHtml(f).replace(/'/g, "\\'") + '\')"><span>📄 ' + escapeHtml(f) + '</span></div>';
+    }
+
+    if (!html) {
+      html = '<p style="color:var(--text-secondary); padding:12px;">No .sqlite files found.</p>';
+    }
+
+    listEl.innerHTML = html;
+  } catch (e) {
+    listEl.innerHTML = '<p style="color:red; padding:12px;">Cannot reach server — ' + escapeHtml(e.message.slice(0, 60)) + '</p>';
+  }
+}
+
+function navigatePicker(dirName) {
+  const input = document.getElementById('pickerPathInput');
+  
+  if (dirName === '..') {
+    // Navigate up: remove the last segment from the current directory path.
+    let p = _pickerCurrentDir.replace(/\/+$/, '');
+    let parts = p.split('/').filter(Boolean);
+    parts.pop();
+    _pickerCurrentDir = '/' + parts.join('/') || '/';
+  } else {
+    // Navigate into a folder: append to the current directory path.
+    if (_pickerCurrentDir && !_pickerCurrentDir.endsWith('/')) {
+      _pickerCurrentDir += '/' + dirName;
+    } else {
+      _pickerCurrentDir = '/' + dirName;
+    }
+  }
+
+  input.value = _pickerCurrentDir === '/' ? '' : _pickerCurrentDir.replace(/\/+$/, '');
+  renderPickerList(_pickerCurrentDir);
+}
+
+function selectPickerFile(fileName) {
+  const input = document.getElementById('pickerPathInput');
+  // Build the full file path from _pickerCurrentDir (the true directory context).
+  let dirPart = (_pickerCurrentDir === '/' ? '' : _pickerCurrentDir);
+  if (dirPart && !dirPart.endsWith('/')) dirPart += '/';
+  input.value = dirPart + fileName;
+
+  // In save-new mode, the user may navigate again after selecting a file.
+  // Keep _pickerCurrentDir pointing to the directory, not the selected file.
+  if (_pickerMode === 'save-new') {
+    let base = _pickerCurrentDir.replace(/\/+$/, '');
+    const lastSlash = base.lastIndexOf('/');
+    _pickerCurrentDir = lastSlash >= 0 ? base.substring(0, lastSlash + 1) : '/';
+  }
+
+  confirmPicker(); // auto-confirm when selecting from list
+}
+
+function confirmPicker() {
+  const input = document.getElementById('pickerPathInput');
+  let filePath = (input.value || '').trim();
+
+  if (!filePath) {
+    showToast('Please enter a file path.');
+    return;
+  }
+
+  // If the user just selected/typed a directory without filename, add default name
+  if (!/\.(sqlite|db)$/i.test(filePath)) {
+    const today = new Date().toISOString().slice(0, 10);
+    filePath += '/kanban_' + today + '.sqlite';
+  }
+
+  // Ensure it looks like a valid POSIX path with filename
+  if (!/^\//.test(filePath) && !filePath.startsWith('~')) {
+    filePath = '/' + filePath.replace(/^\.?\/+/, '');
+  }
+
+  closeServerFilePicker();
+
+  if (_pickerMode === 'open') {
+    return openDatabaseViaServer(filePath)
+      .then(success => success || showToast('Opening failed — use "Open .sqlite" to try again.'))
+      .catch(e => {
+        console.error('[confirmPicker] Open failed:', e.message);
+        showToast('Opening failed — ' + e.message.slice(0, 80));
+      })
+      .finally(() => hideSetupDialog());
+  } else { // save-new — create fresh DB with default schema & labels
+    try {
+      initNewDB();
+
+      return setupSaveTarget(filePath)
+        .then(ok => { if (!ok) throw new Error('Setup failed'); })
+        .then(() => autoSave())
+        .then(() => showToast('Database created!'))
+        .finally(hideSetupDialog);
+    } catch (e) {
+      console.error('[confirmPicker] Save-new failed:', e.message);
+      hideSetupDialog();
+      showToast('Failed to create database: ' + e.message.slice(0, 80));
+    }
+  }
 }
 
 // ========== RENDERING ==========
@@ -1091,12 +1743,12 @@ function escapeHtml(str) {
 
 function sanitizeHtml(html) {
   if (!html) return '';
-  // Remove script tags (including unclosed <script...)
-  html = html.replace(/<script\b[^<]*(?:(?!<\/script>)<)*<\/script>/gi, '');
+  // Remove all <script> elements and their content (handles unclosed tags via the standalone pass).
+  html = html.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gi, '');
   html = html.replace(/<script\b[^>]*/gi, '');
-  // Remove event handler attributes: onclick, onerror, onload, onmouseover, etc.
+  // Strip event handler attributes: onclick, onerror, onload, onmouseover, etc.
   html = html.replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
-  // Remove javascript: protocol from href/src/action/anything=
+  // Neutralize javascript: URLs in href / src / action and any other attribute.
   html = html.replace(/(href|src|action)\s*=\s*["']?\s*javascript:/gi, '$1="invalid"');
   return html;
 }
@@ -1293,7 +1945,7 @@ function saveTask() {
   const colId = parseInt(document.getElementById('taskColumnSelect').value);
   const taskType = document.getElementById('taskTypeSelect').value || 'task';
 
-  const labels = (document.getElementById('taskCardLabels').value || '').split(',').map(s => s.trim()).filter(Boolean).join(',');
+    const labels = (document.getElementById('taskCardLabels').value || '').split(',').map(s => s.trim()).filter(Boolean).join(',');
 
   if (!title) { showToast('Title is required.'); return; }
 
@@ -1327,23 +1979,7 @@ function saveTask() {
 function deleteTaskFromModal() {
   const id = document.getElementById('taskId').value;
   if (!id || !confirm('Delete this task?')) return;
-
-  // Cascade: delete child comments and all descendants recursively
-  try {
-    const childrenResult = db.exec("SELECT id FROM tasks WHERE parent_id = ?", [parseInt(id)]);
-    if (childrenResult.length > 0) {
-      const children = mapRows(childrenResult[0]);
-      for (const child of children) {
-        deleteTaskCascade(child.id);
-      }
-    }
-  } catch(e) {}
-
-  db.run("DELETE FROM tasks WHERE id = ?", [parseInt(id)]);
-  autoSave();
-  closeTaskModal();
-  renderBoard();
-  showToast('Task deleted.');
+  quickDelete(parseInt(id));
 }
 
 function quickDelete(taskId) {
@@ -1418,7 +2054,7 @@ function toggleCommentEditor() {
 function saveNewComment() {
   const editor = document.getElementById('newCommentText');
   const html = editor.innerHTML.trim();
-  if (!html || html === '<br>') return;
+  if (!html || html === '<br>') { showToast('Nothing to save.'); return; }
   
   const taskId = parseInt(document.getElementById('detailTaskId').value);
   db.run("INSERT INTO comments (task_id, body) VALUES (?, ?)", [taskId, html]);
@@ -1464,7 +2100,8 @@ function openDetail(taskId) {
       document.getElementById('detailTaskTypeSelect').appendChild(opt);
     });
     _detailOrigDesc = task.description || '';
-    document.getElementById('detailDesc').innerHTML = _detailOrigDesc;
+    // Use textContent, not innerHTML: description is plain text (contenteditable doesn't inject tags into .textContent).
+    document.getElementById('detailDesc').textContent = _detailOrigDesc;
     // Set label picker for detail modal
     document.getElementById('detailCardLabels').value = task.card_labels || '';
     renderLabelPicker('detailLabelPills', 'detailCardLabels', task.card_labels);
@@ -1479,7 +2116,8 @@ function openDetail(taskId) {
 function saveTaskDetails() {
   const taskId = parseInt(document.getElementById('detailTaskId').value);
   const title = document.getElementById('detailTitle').value.trim();
-  let desc = document.getElementById('detailDesc').innerHTML;
+  // Description is plain text (set via .textContent at line ~2105), no sanitization needed.
+  let desc = document.getElementById('detailDesc').textContent;
 
   // Strip empty tags for plain text check
   const plainText = desc.replace(/<[^>]*>/g, '');
@@ -1644,7 +2282,7 @@ function loadComments(taskId) {
       if (c._editing) {
         bodyHtml = `
           <div class="editor-toolbar"></div>
-          <div class="form-textarea contenteditable-editor" id="editCommentText" contenteditable="true" style="min-height:60px;max-height:200px;overflow-y:auto;">${c.body}</div>`;
+          <div class="form-textarea contenteditable-editor" id="editCommentText" contenteditable="true" style="min-height:60px;max-height:200px;overflow-y:auto;">${sanitizeHtml(c.body)}</div>`;
       } else {
         bodyHtml = '<div class="comment-body">' + sanitizeHtml(c.body) + '</div>';
       }
@@ -1682,7 +2320,6 @@ function renderComments(taskId) {
     }
 
     loadComments(taskId);
-    populateToolbar();
   } catch (err) {}
 }
 
@@ -1724,7 +2361,7 @@ function loadCommentsWithEditFlag(taskId, editId) {
       if (c._editing) {
         bodyHtml = `
           <div class="editor-toolbar"></div>
-          <div class="form-textarea contenteditable-editor" id="editCommentText" contenteditable="true" style="min-height:60px;max-height:200px;overflow-y:auto;">${c.body}</div>`;
+          <div class="form-textarea contenteditable-editor" id="editCommentText" contenteditable="true" style="min-height:60px;max-height:200px;overflow-y:auto;">${sanitizeHtml(c.body)}</div>`;
       } else {
         bodyHtml = '<div class="comment-body">' + sanitizeHtml(c.body) + '</div>';
       }
@@ -1821,6 +2458,12 @@ function renameColumn(colId) {
     const newTitle = prompt('Rename column:', col.title);
     if (!newTitle || !newTitle.trim()) return;
 
+    // Validate: reject characters that could break HTML display or SQL parsing.
+    if (/<|>|`/.test(newTitle.trim())) {
+      showToast('Invalid name.');
+      return;
+    }
+
     db.run("UPDATE columns SET title = ? WHERE id = ?", [newTitle.trim(), colId]);
     autoSave();
     renderBoard();
@@ -1870,211 +2513,6 @@ function deleteColumn(colId) {
   }
 }
 
-// ========== LABEL MANAGER ==========
-let _labelManagerEditingIndex = -1;
-
-function openLabelManager() {
-  renderLabelManagerList();
-  openModal('labelManagerModal');
-}
-
-function closeLabelManager() {
-  closeModal('labelManagerModal');
-  _labelManagerEditingIndex = -1;
-}
-
-function renderLabelManagerList() {
-  const container = document.getElementById('labelManagerList');
-  if (!container) return;
-  let html = '<div id="lmLabelsContainer">';
-  for (let i = 0; i < LABEL_PRESETS.length; i++) {
-    const l = LABEL_PRESETS[i];
-    const displayName = getLabelDisplayName(l.name);
-    html += '<div class="label-manager-row" data-index="' + i + '">' +
-      '<input type="color" class="label-color-swatch" value="' + escapeHtml(l.color) + '" onchange="onLabelManagerColorChange(this, ' + i + ')" title="Pick color">' +
-      '<div class="label-manager-inputs">' +
-        '<input type="text" class="label-name-input" id="lmName_' + i + '" value="' + escapeHtml(l.name) + '" placeholder="label-name" onchange="onLabelManagerNameChange(' + i + ')">' +
-        '<input type="text" class="label-alias-input" id="lmAlias_' + i + '" value="' + escapeHtml(l.alias || '') + '" placeholder="Display name (optional)" onchange="onLabelManagerAliasChange(' + i + ')" onkeydown="if(event.key===\'Enter\')this.blur()">' +
-      '</div>' +
-      '<button type="button" class="label-delete-btn" onclick="onLabelManagerDelete(' + i + ')" title="Remove label">&times;</button>' +
-    '</div>';
-  }
-  html += '</div>' +
-    '<div class="add-label-row">' +
-      '<input type="text" id="lmNewName" class="form-input" placeholder="New label name (e.g. spike)" style="margin:0;flex:1;" onkeydown="if(event.key===\'Enter\')event.preventDefault()">' +
-      '<input type="color" id="lmNewColor" value="#8b5cf6" title="Pick color" style="width:42px;height:37px;border:1px solid var(--border-color);border-radius:var(--radius);background:var(--bg-primary);cursor:pointer;padding:2px;">' +
-      '<button type="button" class="btn btn-secondary" onclick="onLabelManagerAdd()">+ Add</button>' +
-    '</div>' +
-    '<span class="label-count-badge">' + LABEL_PRESETS.length + ' label(s)</span>';
-  container.innerHTML = html;
-}
-
-function onLabelManagerColorChange(input, index) {
-  LABEL_PRESETS[index].color = input.value;
-}
-
-function onLabelManagerNameChange(index) {
-  const newName = document.getElementById('lmName_' + index).value.trim().toLowerCase();
-  if (!newName) return;
-  const oldName = LABEL_PRESETS[index].name;
-  if (oldName !== newName && !isValidLabelName(newName)) {
-    renderLabelManagerList();
-    showToast('Label name must start with a letter, use only letters/numbers/hyphens.');
-    return;
-  }
-  LABEL_PRESETS[index].name = newName;
-  syncLabelsToDb();
-}
-
-function onLabelManagerAliasChange(index) {
-  LABEL_PRESETS[index].alias = document.getElementById('lmAlias_' + index).value.trim();
-}
-
-function isValidLabelName(name) {
-  return /^[a-z][a-z0-9-]*$/.test(name);
-}
-
-function onLabelManagerDelete(index) {
-  const labelName = LABEL_PRESETS[index].name;
-  if (!confirm('Remove the "' + getLabelDisplayName(labelName) + '" label? Tasks using this label will have it removed.')) return;
-  LABEL_PRESETS.splice(index, 1);
-  syncLabelsToDb();
-  saveLabelPrefs(LABEL_PRESETS);
-  renderLabelManagerList();
-}
-
-function onLabelManagerAdd() {
-  const nameInput = document.getElementById('lmNewName');
-  const colorInput = document.getElementById('lmNewColor');
-  let newName = (nameInput.value || '').trim().toLowerCase();
-  if (!newName) { showToast('Enter a label name.'); return; }
-  if (!/^[a-z][a-z0-9-]*$/.test(newName)) {
-    showToast('Label name must start with a letter and contain only letters, numbers, or hyphens.');
-    return;
-  }
-  if (!/^[a-z]/.test(newName)) { showToast('Label name must start with a letter.'); return; }
-  if (LABEL_PRESETS.find(l => l.name === newName)) { showToast('A label with that name already exists.'); return; }
-
-  LABEL_PRESETS.push({ name: newName, color: colorInput.value || '#8b5cf6', alias: '' });
-  syncLabelsToDb();
-  saveLabelPrefs(LABEL_PRESETS);
-  renderLabelManagerList();
-}
-
-function saveLabelManager() {
-  // Validate all names
-  const seen = new Set();
-  for (const l of LABEL_PRESETS) {
-    if (!/^[a-z][a-z0-9-]*$/.test(l.name)) {
-      showToast('Invalid label name: "' + l.name + '". Must start with a letter, letters/numbers/hyphens only.');
-      renderLabelManagerList();
-      return;
-    }
-    if (seen.has(l.name) && !l.alias.trim()) {
-      showToast('Duplicate label names are not allowed without an alias.');
-      renderLabelManagerList();
-      return;
-    }
-    seen.add(l.name);
-  }
-
-  syncLabelsToDb();
-  closeLabelManager();
-  renderBoard();
-  showToast('Labels saved and tasks updated.');
-}
-
-function syncLabelsToDb() {
-  if (!db) return;
-  try {
-    const stored = loadLabels();
-    if (!stored || !stored.length) { saveLabelPrefs(LABEL_PRESETS); return; }
-
-    // Detect changes between stored and current label presets.
-    // Challenge: deletions cause subsequent items to shift indices, which can look like renames.
-    // Heuristic for structural shifts: when old name vanished from its index but a DIFFERENT entry
-    // at that same CURRENT index has the SAME color — items shifted down because something above was deleted.
-
-    const renameMap = {};
-    for (let i = 0; i < Math.min(stored.length, LABEL_PRESETS.length); i++) {
-      if (stored[i].name === LABEL_PRESETS[i].name) continue; // no change at this position
-      const oldName = stored[i].name;
-
-      // Only check when the old name truly vanished from the entire current set
-      if (LABEL_PRESETS.find(p => p.name === oldName)) continue;
-
-      // Check: does another item in CURRENT share the same color as stored[i]?
-      // If yes → this item likely just shifted down after a deletion above it. Skip.
-      const otherEntries = LABEL_PRESETS.filter(
-        (p, idx) => idx !== i && p.color === stored[i].color
-      );
-      if (otherEntries.length > 0) {
-        continue; // structural shift from earlier deletion
-      }
-
-      renameMap[oldName] = LABEL_PRESETS[i].name; // genuine rename attempt
-    }
-
-    // Labels genuinely removed (exist in stored but nowhere in current)
-    const deletedLabels = [];
-    for (const item of stored) {
-      if (!LABEL_PRESETS.find(p => p.name === item.name)) {
-        deletedLabels.push(item.name);
-      }
-    }
-
-    // New items beyond stored length (additions or re-added old names).
-    // Mark them with null to avoid trying to find an old-name match.
-    for (let i = stored.length; i < LABEL_PRESETS.length; i++) {
-      const curName = LABEL_PRESETS[i].name;
-      if (!renameMap[curName]) {
-        renameMap[curName] = null; // not a rename of anything existing
-      }
-    }
-
-    // Update task card_labels in DB
-    const tasks = db.exec("SELECT id, card_labels FROM tasks WHERE card_labels IS NOT NULL AND card_labels != ''");
-    if (tasks.length === 0) { saveLabelPrefs(LABEL_PRESETS); return; }
-
-    let updatedCount = 0;
-    for (const row of tasks[0].values) {
-      const taskId = row[0];
-      const labelsStr = typeof row[1] === 'string' ? row[1] : '';
-      if (!labelsStr.trim()) continue;
-      let newLabels = labelsStr.split(',').map(s => s.trim()).filter(Boolean);
-
-      // Apply renames (oldName -> newName)
-      for (const [oldName, newName] of Object.entries(renameMap)) {
-        const idx = newLabels.indexOf(oldName);
-        if (idx !== -1 && newName) {
-          newLabels[idx] = newName;
-        }
-      }
-
-      // Remove deleted labels
-      for (const del of deletedLabels) {
-        newLabels = newLabels.filter(l => l !== del);
-      }
-
-      const newStr = newLabels.join(', ');
-      if (newStr !== labelsStr) {
-        db.run("UPDATE tasks SET card_labels = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [newStr, taskId]);
-        updatedCount++;
-      }
-    }
-
-    saveLabelPrefs(LABEL_PRESETS);
-
-    if (updatedCount > 0) {
-      console.log('Updated ' + updatedCount + ' task label references.');
-    } else {
-      console.log('Labels synced to DB. Task cards will reflect changes on re-render.');
-    }
-  } catch(e) {
-    console.error('syncLabelsToDb error:', e);
-    saveLabelPrefs(LABEL_PRESETS);
-  }
-}
 
 // ========== TYPE & PARENT SELECT POPULATION ==========
 function populateTypeSelect(selected) {
@@ -2127,7 +2565,7 @@ function closeDetailModal() {
   if (savingDetails) return;
   const detailTitle = document.getElementById('detailTitle');
   const detailDesc = document.getElementById('detailDesc');
-  const hasUnsaved = detailTitle.value.trim() !== _detailOrigTitle || detailDesc.innerHTML.trim() !== _detailOrigDesc;
+  const hasUnsaved = detailTitle.value.trim() !== _detailOrigTitle || detailDesc.textContent.trim() !== _detailOrigDesc;
   if (hasUnsaved && !confirm('Discard unsaved changes?')) return;
   closeModal('detailModal');
 }
@@ -2139,6 +2577,9 @@ document.addEventListener('click', e => {
   if (target.matches('input, textarea, button, select') || target.closest('.modal-body')) return;
   const overlay = target.closest('.modal-overlay.active');
   if (!overlay) return;
+    // Don't close the setup dialog via overlay click — it has its own lifecycle
+  if (target.id === 'setupDialog' || target.closest('#setupDialog') || overlay.querySelector('#setupDialog')) return;
+
   // Don't prompt when a save just completed — the close was already handled
   if (savingTask || savingDetails) return;
   const hasUnsaved = document.getElementById('detailTitle')?.value.trim() !== _detailOrigTitle ||
@@ -2147,29 +2588,20 @@ document.addEventListener('click', e => {
   overlay.classList.remove('active');
 });
 
-// ========== THEME ==========
+// ========== THEME (per-session, not persisted) ==========
 function toggleTheme() {
   const html = document.documentElement;
   const current = html.getAttribute('data-theme');
   const next = current === 'dark' ? 'light' : 'dark';
   html.setAttribute('data-theme', next);
-  localStorage.setItem('kanban_theme', next);
   document.getElementById('themeToggle').textContent = next === 'dark' ? '☀️' : '🌙';
 }
 
-(function () {
-  const saved = localStorage.getItem('kanban_theme');
-  if (saved) {
-    document.documentElement.setAttribute('data-theme', saved);
-    document.getElementById('themeToggle').textContent = saved === 'dark' ? '☀️' : '🌙';
-  } else {
-    // Auto-detect system preference
-    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      document.documentElement.setAttribute('data-theme', 'dark');
-      document.getElementById('themeToggle').textContent = '☀️';
-    }
-  }
-})();
+// Auto-detect system preference on load.
+if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+  document.documentElement.setAttribute('data-theme', 'dark');
+  document.getElementById('themeToggle').textContent = '☀️';
+}
 
 // ========== TOAST ==========
 function showToast(msg) {

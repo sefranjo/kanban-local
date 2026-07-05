@@ -2,23 +2,14 @@
 
 An offline-only Kanban board that runs entirely in the browser with SQLite via WebAssembly. Single HTML file, zero dependencies, no build step.
 
-## Introduction
-
-Have you ever wanted to have your own portable Kanban board for your personal projects?
-
-Something that can run on any OS, without servers required, and a small `.sqlite` database file that you can sync via your preferred solution — Google Drive, OneDrive, pCloud, and so on.
-
-This is the solution. Run your Kanban board from one computer at a time, simple and effective.
-
-It's also a great starting point for improvements. You can enhance it with your favourite AI tool — the repo includes `AGENTS.md` to help AI agents understand the codebase.
-
 ## Features
 
 - **Drag-and-drop** cards between columns using native HTML5 API
 - **Task types** — create Epic tasks (for projects) or regular Tasks. Epics display a 📁 badge with child count on the card
-- **Parent/child linking** — any task can be linked as a child of another. Detail modal shows a "Linked Tasks" section for managing hierarchy with circular-reference prevention
-- **Rich text editing** for task descriptions and comments (bold, italic, underline, strikethrough, lists, code blocks)
-- **Persistent storage** — database saved to localStorage as base64, with import/export via `.sqlite` files
+- **Parent/child linking** — any task can be linked as a child of another. Detail modal shows "Linked Tasks" for managing hierarchy with circular-reference prevention
+- **Rich text editing** for descriptions and comments (bold, italic, underline, strikethrough, lists, code blocks)
+- **Persistent storage** — database saved to `.sqlite` files via File System Access API (HTTPS) or Node.js server proxy (HTTP). Auto-save enabled after opening/creating a file.
+- **Per-database labels** — each `.sqlite` file stores its own label presets (name, display alias, color) inside the DB. Open `a.sqlite`, edit labels; open `b.sqlite` — its labels are unaffected.
 - **Dark/light theme** toggle (`Ctrl+T` / `Cmd+T`)
 - **Search** across all cards with debounced filtering (`Ctrl+K` / `Cmd+K`)
 - **Column management** — rename, reorder (move left/right), delete via right-click context menu
@@ -28,48 +19,39 @@ It's also a great starting point for improvements. You can enhance it with your 
 
 ### Prerequisites
 
-A local HTTP server is required because WebAssembly refuses to load over `file://`. Node.js preferred for correct `.wasm` MIME type.
+A local HTTP server is required because WebAssembly refuses to load over `file://`. Node.js preferred for correct `.wasm` MIME type (`application/wasm`). Python fallback in `start.sh` fails at runtime.
 
 ### Run
 
 ```bash
-# Option 1: Use the launcher script (auto-detects available runtime)
-./start.sh [port]    # default port: 8089, starts in background via nohup
-
-# Option 2: Start directly with Node.js (foreground)
-node server.js [port]   # default port: 8089
-
-# Open your browser:
-open http://localhost:8089
+./start.sh [port]       # default 8089, starts via nohup in background
+node server.js          # foreground — always binds to port 8089 (ignores CLI args)
+pkill -f "node server"  # stop
 ```
 
-**Note:** If Node.js is not installed, `start.sh` falls back to Python3 (port 8089) or legacy Python (port 8080). Only Node guarantees correct `.wasm` MIME type (`application/wasm`).
+### Open your browser
 
-### Stop the server
-
-The launcher starts backgrounded via nohup. Kill with:
-```bash
-pkill -f "node server.js"
-# or
-pkill -f "python3 -m http.server"
-```
+Navigate to `http://localhost:8089`. You'll see the setup dialog where you can create a new database or open an existing `.sqlite` file. The interface includes buttons for creating and opening files with a built-in file picker.
 
 ## Project Structure
 
 ```
-index.html          # Entire application (~2224 lines): HTML + CSS + JS
-server.js           # Minimal Node.js HTTP server (WASM requires HTTP protocol)
+index.html          # Entire application (2661 lines): HTML + CSS + JS
+server.js           # Minimal Node.js HTTP server (283 lines) — serves static files, handles API endpoints, writes .sqlite to disk
 start.sh            # Launcher with portable path detection and nohup backgrounding
 assets/sql-wasm.js  # sql.js WASM loader (~50KB)
 assets/sql-wasm.wasm # SQLite WebAssembly binary (~650KB)
+kanban_prefs.json   # Preferences (currently empty; label prefs are stored per-database in the .sqlite file itself)
+README.md           # You are reading this
+AGENTS.md           # AI agent instructions — helps agents ramp up and avoid mistakes
 ```
 
 ## Architecture Highlights
 
-- **Single-file app**: Everything lives in `index.html` — CSS in `<style>`, JavaScript in `<script>`. No modules, no imports, no bundler.
-- **Database**: Uses [sql.js](https://github.com/sql-js/sql.js) to run SQLite as WebAssembly entirely in-memory. Loaded via `initSqlJs({ locateFile: file => 'assets/' + file })` — relative path is critical.
-- **Persistence**: Database exported to base64 and stored in `localStorage` key `kanban_db`. Uses chunked `String.fromCharCode.apply()` (32KB chunks) to avoid stack overflow on large databases. Theme stored separately in `kanban_theme`.
-- **Schema**: 3 tables — `columns`, `tasks` (with `task_type`: 'epic' or 'task', and `parent_id` for linking tasks), `comments`. Default columns seeded at init: "To Do", "Blocked", "In Progress", "Done".
+- **Single-file app**: Everything lives in `index.html` — CSS, JavaScript, no modules, no imports, no bundler. Manual edit-and-refresh is the development workflow.
+- **Database**: Uses [sql.js](https://github.com/sql-js/sql.js) to run SQLite as WebAssembly entirely in-memory, loaded via `initSqlJs({ locateFile: file => 'assets/' + file })` — relative path is critical; absolute paths break WASM loading.
+- **Server-side storage**: The browser never writes directly to disk (except on HTTPS with File System Access API). On HTTP, a Node.js server handles all persistence via `/api/save-db` and `/api/open-file`.
+- **Label prefs per-database**: Labels are stored inside the SQLite file itself in a `labels_prefs(key, value TEXT)` table. Opening different databases shows independent label sets — changing labels in one doesn't affect another.
 
 ## Keyboard Shortcuts
 
@@ -77,19 +59,19 @@ assets/sql-wasm.wasm # SQLite WebAssembly binary (~650KB)
 |---|---|
 | `Ctrl+K` / `Cmd+K` | Focus search box |
 | `Ctrl+T` / `Cmd+T` | Toggle dark/light theme |
-| `Escape` | Close modals, context menus, cancel comment editor; if focused on search box, clears it |
-| `Enter` (in task modal) | Saves the task instead of doing nothing |
+| `Escape` | Close modals, context menus, cancel comment editor; clears search if focused |
+| `Enter` (in task title input) | Saves the task instead of just adding whitespace |
 
 ## Limitations
 
-- No undo buffer — every edit is immediately committed. Export `.sqlite` to preserve state.
+- No undo buffer — every edit is immediately committed. Export `.sqlite` to preserve state before making risky changes.
 - Column renaming uses native `prompt()` dialog; no inline editing.
-- Labels are predefined presets with customizable colors and display names.
-- Search does not auto-clear — must press Escape manually.
+- Comments are raw HTML (contenteditable) and must pass through `sanitizeHtml()` before display — strips `<script>` tags, event handler attributes, and `javascript:` URLs while preserving safe formatting.
+- Labels are predefined presets with customizable colors, display names, and aliases.
 
 ## Development Notes
 
-This project has no build step, no package manager, and no lint/typecheck/format scripts. Manual edit-and-refresh in the browser is the entire development workflow.
+This project has no build step, no package manager, no lint/typecheck/format scripts. Manual edit-and-refresh in the browser is the entire development workflow.
 
 ---
 
