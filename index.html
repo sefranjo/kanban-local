@@ -451,34 +451,45 @@ mark.search-highlight {
 }
 
 /* Label Manager */
+#labelManagerModal .modal { width: 720px; max-width: 92vw; }
+
 .label-manager-row {
-  display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  display: flex; align-items: center; gap: 8px; padding: 10px 12px;
   border: 1px solid var(--border-color); border-radius: var(--radius);
-  margin-bottom: 8px; background: var(--bg-primary); transition: box-shadow 0.2s;
+  margin-bottom: 8px; background: var(--bg-secondary); transition: box-shadow 0.2s, border-color 0.2s;
 }
-.label-manager-row:hover { box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+.label-manager-row:hover { border-color: var(--accent); }
+
+/* Header row for existing labels */
+.label-header-row {
+  display: flex; align-items: center; gap: 8px; padding: 4px 12px 6px; margin-bottom: 4px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); font-weight: 600;
+}
 .label-color-swatch {
-  width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--border-color);
-  flex-shrink: 0; cursor: pointer; padding: 0; overflow: hidden;
+  width: 32px; height: 32px; border-radius: 50%; border: 2.5px solid var(--border-color);
+  flex-shrink: 0; cursor: pointer; padding: 0; overflow: hidden; transition: transform 0.1s, box-shadow 0.15s;
 }
+.label-color-swatch:hover { transform: scale(1.1); }
 .label-color-swatch::-webkit-color-swatch-wrapper { padding: 0; }
 .label-color-swatch::-webkit-color-swatch { border: none; border-radius: 50%; }
 .label-color-swatch::-moz-color-swatch { border: none; border-radius: 50%; }
-.label-manager-inputs { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.label-manager-inputs { flex: 1; display: flex; gap: 8px; min-width: 0; align-items: center; }
 .label-name-input, .label-alias-input {
-  width: 100%; padding: 5px 8px; border: 1px solid var(--border-color);
-  border-radius: 4px; background: var(--bg-secondary); color: var(--text-primary);
-  font-size: 13px; font-family: inherit; outline: none;
+  padding: 6px 8px; border: 1px solid var(--border-color); border-radius: 4px;
+  background: var(--bg-primary); color: var(--text-primary); font-size: 13px;
+  font-family: inherit; outline: none; transition: border-color 0.15s, box-shadow 0.15s;
 }
-.label-name-input:focus, .label-alias-input:focus { border-color: var(--accent); }
+.label-name-input { width: 120px; }
+.label-alias-input { flex: 1; min-width: 80px; }
+.label-name-input:focus, .label-alias-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(92,156,230,0.15); }
 .label-name-input::placeholder { color: var(--text-secondary); opacity: 0.6; }
 .label-alias-input::placeholder { color: var(--text-secondary); opacity: 0.5; font-size: 12px; }
 .label-delete-btn {
-  background: none; border: none; color: var(--text-secondary); cursor: pointer;
-  font-size: 16px; padding: 4px 8px; border-radius: 4px; flex-shrink: 0; transition: color 0.15s, background 0.15s;
+  background: none; border: 1px solid var(--border-color); color: var(--text-secondary); cursor: pointer;
+  font-size: 16px; padding: 4px 8px; border-radius: 6px; flex-shrink: 0; transition: all 0.15s; min-width: 28px; text-align: center; line-height: 1;
 }
-.label-delete-btn:hover { color: var(--danger); background: rgba(235,90,70,0.1); }
-.add-label-row { display: flex; gap: 8px; margin-top: 4px; }
+.label-delete-btn:hover { color: #fff; background: var(--danger); border-color: var(--danger); }
+.add-label-row { display: flex; gap: 8px; margin-top: 4px; align-items: center; }
 .add-label-row .btn { flex-shrink: 0; }
 .label-count-badge { font-size: 12px; color: var(--text-secondary); margin-left: auto; padding-right: 4px; }
 
@@ -631,6 +642,10 @@ mark.search-highlight {
         <input type="text" id="taskTitleInput" class="form-input" placeholder="Task title">
       </div>
       <div class="form-group">
+        <label class="form-label">Display Name (optional)</label>
+        <input type="text" id="taskDisplayNameInput" class="form-input" placeholder="How this task appears on the card">
+      </div>
+      <div class="form-group">
         <label class="form-label">Type</label>
         <select id="taskTypeSelect" class="form-select"></select>
       </div>
@@ -665,6 +680,10 @@ mark.search-highlight {
       <div class="form-group">
         <label class="form-label">Title</label>
         <input type="text" id="detailTitle" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Display Name (optional)</label>
+        <input type="text" id="detailDisplayNameInput" class="form-input" placeholder="How this task appears on the card">
       </div>
       <div class="form-group">
         <label class="form-label">Type</label>
@@ -739,6 +758,10 @@ let savingDetails = false;
 let _detailOrigTitle = '';
 let _detailOrigDesc = '';
 
+// ========== DEFAULT LABELS (loaded from kanban_prefs.json when creating new DB) ==========
+
+let SERVER_LABELS = null;
+
 const DEFAULT_LABELS = [
     { name: 'bug', color: '#eb5a46', alias: '' },
     { name: 'feature', color: '#0079bf', alias: '' },
@@ -774,9 +797,23 @@ function populateToolbar() {
 async function seedLabelsIfMissing() {
     try {
         const stored = await loadLabelPrefs();
-        if (stored?.length) LABEL_PRESETS = stored;
-    } catch(e) { LABEL_PRESETS = [...DEFAULT_LABELS]; }
+        if (stored?.length) { LABEL_PRESETS = stored; return; }
+    } catch(e) {} // no DB or table yet — proceed with defaults
     
+    // No existing labels in this DB: use server-side default labels.
+    try {
+        const prefResponse = await fetch('/api/preferences?key=kanban_labels', { method: 'GET' });
+        if (prefResponse.ok) {
+            SERVER_LABELS = (await prefResponse.json()).value;
+            if (Array.isArray(SERVER_LABELS) && SERVER_LABELS.length) LABEL_PRESETS = [...SERVER_LABELS];
+        }
+    } catch(_) {}
+    
+    // Fallback to hardcoded defaults only if server labels unavailable.
+    if (!LABEL_PRESETS?.length || !LABEL_PRESETS.some(l => l.name)) {
+        LABEL_PRESETS = [...DEFAULT_LABELS];
+    }
+
     try { saveLabelPrefs(LABEL_PRESETS); } catch(e) {}
 }
 
@@ -806,11 +843,21 @@ function closeLabelManager() {
 }
 
 function openLabelManager() {
-  renderLabelManagerList();
-  const modal = document.getElementById('labelManagerModal');
-  if (modal) {
+  try {
+    // Close any other modal that might be active (setupDialog, taskModal, etc.)
+    document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
+
+    renderLabelManagerList();
+    const modal = document.getElementById('labelManagerModal');
+    if (!modal) return;
+    
+    // Set a high z-index so it appears above everything else (setupDialog has 201, we use 300)
+    modal.style.zIndex = '300';
     modal.classList.add('active');
     // If there are more than a few labels, show the scrollable list.
+  } catch(e) {
+    console.error('[openLabelManager] Error:', e.message);
+    showToast('Error opening label manager: ' + e.message.slice(0,80));
   }
 }
 
@@ -818,24 +865,35 @@ function renderLabelManagerList() {
   const container = document.getElementById('label-manager-list');
   if (!container) return;
 
-  let html = '';
+  let html = '<div class="label-header-row">' +
+    '<span style="flex-basis:120px;min-width:80px;">Name</span>' +
+    '<span style="flex:1;min-width:80px;">Display Alias</span>' +
+    '<span>Color</span>' +
+  '</div>';
 
   for (const [i, l] of LABEL_PRESETS.entries()) {
     html += '<div class="label-manager-row">' +
-      '<input type="text" id="lmName_' + i + '" value="' + escapeHtml(l.name) + '" onchange="onLabelManagerNameChange(' + i + ')" placeholder="name" style="width:120px;"/>' +
-      '&nbsp;<span>—</span>&nbsp;' +
-      '<input type="text" id="lmAlias_' + i + '" value="' + escapeHtml(l.alias) + '" onchange="onLabelManagerAliasChange(' + i + ')" placeholder="display name (optional)" style="width:180px;"/>' +
-      '&nbsp;<span>—</span>&nbsp;' +
-      '<input type="color" id="lmColor_' + i + '" value="' + escapeHtml(l.color) + '" onchange="onLabelManagerColorChange(this,' + i + ')" style="width:36px;"/>' +
+      '<div class="label-manager-inputs">' +
+        '<input type="text" id="lmName_' + i + '" value="' + escapeHtml(l.name) + '" onchange="onLabelManagerNameChange(' + i + ')" placeholder="name" style="width:120px;"/>' +
+        '&nbsp;&mdash;&nbsp;' +
+        '<input type="text" id="lmAlias_' + i + '" value="' + escapeHtml(l.alias) + '" onchange="onLabelManagerAliasChange(' + i + ')" placeholder="display name (optional)" style="flex:1;min-width:80px;"/>' +
+      '</div>' +
+      '<input type="color" id="lmColor_' + i + '" value="' + escapeHtml(l.color) + '" onchange="onLabelManagerColorChange(this,' + i + ')" class="label-color-swatch"/>' +
+      '&nbsp;' +
+      '<button type="button" class="label-delete-btn" onclick="onLabelManagerDelete(' + i + ')">&#128465;</button>' +
     '</div>';
   }
 
   container.innerHTML = html +
-    '<hr/>' +
-    '<div class="label-manager-add">' +
-      '<input type="text" id="lmNewName" placeholder="new name" style="width:120px;" onkeypress="if(event.key === \'Enter\') onLabelManagerAdd()"/>' +
-      '&nbsp;<input type="color" id="lmNewColor" value="#8b5cf6"/>' +
-      '<button type="button" class="btn btn-secondary" onclick="onLabelManagerAdd()">+ Add</button>' +
+    '<hr style="margin:16px 0;border:none;border-top:1px solid var(--border-color);"/>' +
+    '<div class="label-header-row">' +
+      '<span>Add new label</span>' +
+    '</div>' +
+    '<div class="add-label-row">' +
+      '<input type="text" id="lmNewName" placeholder="new name" onkeypress="if(event.key === \'Enter\') onLabelManagerAdd()"/>' +
+      '&nbsp;<span>&mdash;</span>&nbsp;' +
+      '<input type="color" id="lmNewColor" value="#8b5cf6"/>' +
+      '<button type="button" class="btn btn-primary" onclick="onLabelManagerAdd()">+ Add</button>' +
     '</div>';
 
   // Update count badge.
@@ -880,7 +938,8 @@ async function onLabelManagerDelete(index) {
   const labelName = LABEL_PRESETS[index].name;
   if (!confirm('Remove the "' + getLabelDisplayName(labelName) + '" label? Tasks using this label will have it removed.')) return;
   LABEL_PRESETS.splice(index, 1);
-    await syncLabelsToDb();
+    await syncLabelsToDb().catch(() => {});
+    renderLabelManagerList();
 }
 
 async function onLabelManagerAdd() {
@@ -1599,7 +1658,8 @@ function createColumnElement(col, filter = '') {
     allTasks.push(...mapRows(result[0]));
   }
   const totalTaskCount = allTasks.length;
-  const tasks = filter ? allTasks.filter(t => t.title.toLowerCase().includes(filter) || t.description.toLowerCase().includes(filter)) : allTasks;
+  // Filter by title OR description (display_name is shown on card but filter uses canonical fields)
+  const tasks = filter ? allTasks.filter(t => (t.title || '').toLowerCase().includes(filter) || (t.description || '').toLowerCase().includes(filter)) : allTasks;
 
   // Batch comment count query instead of N+1 per-card queries
   const taskIdSet = allTasks.map(t => t.id);
@@ -1687,7 +1747,12 @@ function createCardElement(task, colId, commentMap = {}, search = '') {
 
   const escapedTitle = escapeHtml(task.title || '');
   let displayTitle = escapedTitle;
-  if (search && task.title) {
+  if (task.display_name && task.display_name.trim()) {
+    const dname = escapeHtml(task.display_name);
+    displayTitle = search && dname.toLowerCase().includes(search)
+      ? highlightSearch(dname, search)
+      : dname;
+  } else if (search && escapedTitle) {
     const regex = new RegExp('(' + search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
     displayTitle = escapedTitle.replace(regex, '<mark class="search-highlight">$1</mark>');
   }
@@ -1921,6 +1986,7 @@ function openAddTask(columnId, parentId) {
   document.getElementById('taskModalTitle').textContent = 'New Task';
   document.getElementById('taskId').value = '';
   document.getElementById('taskTitleInput').value = '';
+  document.getElementById('taskDisplayNameInput') && (document.getElementById('taskDisplayNameInput').value = '');
   document.getElementById('taskCardLabels').value = '';
   populateTypeSelect('task');
   populateColumnSelect();
@@ -1950,16 +2016,18 @@ function saveTask() {
   if (!title) { showToast('Title is required.'); return; }
 
   try {
+    const displayName = (document.getElementById('taskDisplayNameInput') && document.getElementById('taskDisplayNameInput').value || '').trim();
     if (id) {
-      db.run("UPDATE tasks SET title = ?, column_id = ?, task_type = ?, card_labels = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [title, colId, taskType, labels, parseInt(id)]);
+      db.run("UPDATE tasks SET title = ?, display_name = ?, column_id = ?, task_type = ?, card_labels = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [title, displayName || null, colId, taskType, labels, parseInt(id)]);
     } else {
+      try { db.run("ALTER TABLE tasks ADD COLUMN display_name TEXT DEFAULT ''"); } catch(_) {} // idempotent migration
       const parentId = document.getElementById('addTaskParentId').value;
       const maxOrder = db.exec("SELECT COALESCE(MAX(sort_order), -1) AS m FROM tasks WHERE column_id = ?", [colId]);
       const nextOrder = (maxOrder[0] ? maxOrder[0].values[0][0] : 0) + 1;
       if (parentId && parseInt(parentId)) {
-        db.run('INSERT INTO tasks (column_id, title, task_type, parent_id, card_labels, sort_order) VALUES (?, ?, ?, ?, ?, ?)', [colId, title, taskType, parseInt(parentId), labels, nextOrder]);
+        db.run('INSERT INTO tasks (column_id, title, display_name, task_type, parent_id, card_labels, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)', [colId, title, displayName || null, taskType, parseInt(parentId), labels, nextOrder]);
       } else {
-        db.run('INSERT INTO tasks (column_id, title, task_type, card_labels, sort_order) VALUES (?, ?, ?, ?, ?)', [colId, title, taskType, labels, nextOrder]);
+        db.run('INSERT INTO tasks (column_id, title, display_name, task_type, card_labels, sort_order) VALUES (?, ?, ?, ?, ?, ?)', [colId, title, displayName || null, taskType, labels, nextOrder]);
       }
     }
 
@@ -2088,6 +2156,9 @@ function openDetail(taskId) {
     document.getElementById('detailTaskId').value = task.id;
     _detailOrigTitle = task.title || '';
     document.getElementById('detailTitle').value = _detailOrigTitle;
+    // Populate display name if available
+    const displayNameInput = document.getElementById('detailDisplayNameInput');
+    if (displayNameInput) { try { displayNameInput.value = task.display_name || ''; } catch(_) {} }
     // Set type selects to match current task type (both modals)
     const selVal = task.task_type || 'task';
     populateTypeSelect(selVal);
@@ -2125,7 +2196,15 @@ function saveTaskDetails() {
 
   const labels = (document.getElementById('detailCardLabels').value || '').split(',').map(s => s.trim()).filter(Boolean).join(',');
 
-  db.run("UPDATE tasks SET title = ?, description = ?, task_type = ?, card_labels = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [title, sanitizeHtml(desc), document.getElementById('detailTaskTypeSelect').value || 'task', labels, taskId]);
+  // Populate display_name column if it exists on this DB version.
+  let displayNameInput, displayName = '';
+  try {
+    displayNameInput = document.getElementById('detailDisplayNameInput');
+    displayName = displayNameInput ? (displayNameInput.value || '').trim() : '';
+  } catch(_) {}
+  const hasDisplayCol = displayNameInput !== undefined;
+
+  db.run("UPDATE tasks SET title = ?, display_name = ?, description = ?, task_type = ?, card_labels = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [title, hasDisplayCol ? (displayName || null) : null, sanitizeHtml(desc), document.getElementById('detailTaskTypeSelect').value || 'task', labels, taskId]);
   autoSave();
   _detailOrigTitle = title;
   _detailOrigDesc = desc;
