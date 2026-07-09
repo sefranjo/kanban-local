@@ -1143,8 +1143,8 @@ function initNewDB() {
   db = new SQL.Database();
   try {
     db.run("CREATE TABLE columns (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0)");
-    // column_id and parent_id are nullable — required for soft-delete to clear them.
-    db.run("CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, column_id INTEGER DEFAULT NULL REFERENCES columns(id), title TEXT NOT NULL, description TEXT DEFAULT '', task_type TEXT DEFAULT 'task' CHECK(task_type IN ('epic', 'task')), parent_id INTEGER DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL, card_labels TEXT DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, display_name TEXT DEFAULT '')");
+    // column_id and parent_id are nullable — required for soft-delete.
+    db.run("CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, column_id INTEGER DEFAULT NULL REFERENCES columns(id), title TEXT NOT NULL, description TEXT DEFAULT '', task_type TEXT DEFAULT 'task' CHECK(task_type IN ('epic', 'task')), parent_id INTEGER DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL, card_labels TEXT DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, display_name TEXT DEFAULT '', deleted INTEGER NOT NULL DEFAULT 0)");
     db.run("CREATE TABLE comments (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, body TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
 
     // Seed default columns using dynamic IDs to avoid collisions on partially-initialized databases.
@@ -1152,12 +1152,6 @@ function initNewDB() {
     db.run("INSERT INTO columns (id, title, sort_order) SELECT COALESCE(MAX(id), 0) + 1, 'Blocked', 1 FROM columns");
     db.run("INSERT INTO columns (id, title, sort_order) SELECT COALESCE(MAX(id), 0) + 1, 'In Progress', 2 FROM columns");
     db.run("INSERT INTO columns (id, title, sort_order) SELECT COALESCE(MAX(id), 0) + 1, 'Done', 3 FROM columns");
-
-    // display_name column migration (idempotent).
-    try {
-      var cols3 = db.exec("PRAGMA table_info(tasks)")[0]?.values || [];
-      if (!cols3.find(c => c[1] === 'display_name')) db.run("ALTER TABLE tasks ADD COLUMN display_name TEXT DEFAULT ''");
-    } catch (e4) {}
 
     seedLabelsIfMissing();
     renderBoard();
