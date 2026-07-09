@@ -10,7 +10,7 @@ node server.js          # foreground — always binds to 8089 (ignores CLI args)
 pkill -f "node server"  # stop
 ```
 
-**Node.js required.** Python fallback in `start.sh` serves static files but has **no API support**, so save/open features will not work. Server log goes to `/tmp/kanban-server.log`.
+**Node.js required.** Python fallback in `start.sh` serves static files but has **no API support**, so save/open features will not work. Server log → `/tmp/kanban-server.log`.
 
 ## Port quirk
 
@@ -58,22 +58,11 @@ Manual edit-and-refresh only — no build step, no package manager, no lint/type
 - **Labels are predefined presets** with customizable colors, display names, and aliases.
 - **Column management** (rename, reorder, delete) is via right-click context menu.
 - **Search** queries DB first then filters in-memory, not raw DOM — debounced at 250ms, filters title + description only. Does **not** auto-clear; user must press Escape to restore the board.
-- **Delete cascades children recursively** — `softDeleteTask()` walks the full tree depth-first using bottom-up DFS: it saves each descendant's parent_id before clearing them (so recovery can restore hierarchy), then sets `deleted=1` on all nodes. Both column-deletion flow and task-delete path (`quickDelete` → called by `deleteTaskFromModal`) use this same function now.
 - **Enter in the task title input saves** the task instead of just adding whitespace.
 
-## Recycle Bin / Soft Delete
+## Soft-delete / Recycle bin
 
-Tasks are soft-deleted, not hard-removed: a `deleted INTEGER NOT NULL DEFAULT 0` column on `tasks`. Two queries gate visibility: board renders `WHERE deleted = 0`; recycle bin shows `WHERE deleted = 1`.
-
-**Schema migration**: ALTER TABLE runs in `initNewDB()` (new DB), plus during import (`handleImport`) and `openExistingDatabase` — always via TRY/CATCH so it silently skips if column already exists. Also done in `softDeleteTask()` to handle old databases created before soft-delete was introduced.
-
-**`softDeleteTask(taskId)`**: replaces both old hard-delete paths:
-1. Bottom-up DFS saves each descendant's original `parent_id`.
-2. Recurses and soft-deletes (sets `deleted=1`). Does NOT null out `column_id`/`parent_id` — only the flag is set, so recovered items retain their full context.
-
-**Recycle bin UI**: right-click 🗑 button in top bar opens a fixed overlay panel (`.recycle-panel`) with checkboxes, Select All, Recover Selected, Delete Permanently, and Empty Recycle Bin buttons. The panel uses `renderBoard()`-style DOM rendering from a filtered DB query — no separate in-memory state.
-
-**Recovery**: sets `deleted=0` on selected IDs; items reappear under their original parents automatically since `parent_id` was never cleared during deletion.
+Tasks are soft-deleted (`deleted=1`) via bottom-up DFS that saves each descendant's `parent_id` before clearing them. Recovery sets `deleted=0`; items reappear under their original parents since `parent_id` is never cleared during deletion — full context preserved. ALTER TABLE migration runs in `initNewDB()`, `handleImport`, and `openExistingDatabase` via TRY/CATCH, plus `softDeleteTask()` for old databases. Both column-deletion flow and task-delete path (`quickDelete`) use the same function now.
 
 ## WYSIWYG editors / Comments
 

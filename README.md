@@ -1,43 +1,19 @@
 # Kanban Board — Local SQLite
 
-A local-only kanban board — To Do / Blocked / In Progress / Done with task hierarchies, comments, and rich-text editing. Every database lives in a single `.sqlite` file on your machine; no accounts, no cloud sync, no external services.
+A local-only kanban board for organizing tasks across four default columns (To Do, Blocked, In Progress, Done). Every database lives in its own `.sqlite` file on your machine — no accounts, no cloud sync, no external services.
 
-## Features
+## Features at a glance
 
-| Feature | Details |
-|---|---|
-| **Drag-and-drop** | Native HTML5 drag & drop between columns and reordering within a column (fractional sort order). |
-| **Task hierarchy** | Create Epics (📁 with child count) or regular Tasks. Link any task as a parent/child of another; circular references are prevented by walking up the tree. |
-| **Display name** | Optional per-task label that overrides its title on cards, while search still filters by canonical title + description. |
-| **Rich text** | Bold / italic / underline / strikethrough / lists / code in task descriptions and comments (sanitized against `<script>` tags). |
-| **Comments** | Editable, deletable per-task with inline toolbar. |
-| **Label presets** | Predefined label names with customizable color, display alias, and card badge. Saved *per database* inside the `.sqlite` file itself — different databases have independent labels. |
-| **Search** | Debounced (250 ms) across all cards' title + description (`Ctrl+K` / `Cmd+K`). Press Escape to restore the board. |
-| **Theme** | Dark ↔ Light toggle with per-database preference (`Ctrl+T` / `Cmd+T`). |
-| **Column management** | Right-click context menu: rename (native `prompt()`), reorder, delete (cascades children). |
-| **Import & Export** | Download current board as `.sqlite`; import a `.sqlite` to replace the in-memory board. Auto-save kicks in once you've chosen where to persist. |
+- **Task hierarchy** — Create Epics (📁 with child count) or regular Tasks. Link any task as parent/child of another; circular references are prevented automatically.
+- **Drag-and-drop** — Reorder cards within a column or move them between columns using HTML5 native drag & drop (fractional sort order for smooth gaps).
+- **Display names** — Optional per-task alias that overrides the title on cards while search still matches the canonical title and description.
+- **Comments** — Rich-text WYSIWYG editor with inline toolbar (bold, italic, strikethrough, lists, code blocks) sanitized against `<script>` tags, event handlers, and `javascript:` URLs. Press `Esc` to cancel an open comment editor.
+- **Label presets** — Color-coded badges on cards. Customize colors, display aliases per-database via the "Manage Labels" button in the top bar. Different databases have independent label sets.
+- **Search & theme** — Search all cards' titles + descriptions (`Ctrl+K` / `Cmd+K`, debounced 250ms). Toggle dark/light mode with a per-database preference (`Ctrl+T` / `Cmd+T`). Press `Esc` to restore the board after searching.
+- **Column management** — Right-click context menu: rename, reorder, delete (children are soft-deleted along with it).
+- **Import & Export** — Download the current board as a `.sqlite` file; import another to replace in-memory state. Auto-save kicks in once you've chosen where to persist.
 
-## Getting Started
-
-### Prerequisites
-
-Node.js — required for correct MIME type on `.wasm`. Python fallback (`python -m http.server`) serves static files but has **no API support**, so save/open/import/export won't work.
-
-### Run
-
-```bash
-./start.sh [port]       # default 8089, background via nohup
-node server.js          # foreground — always binds to port 8089 (ignores CLI args)
-pkill -f "node server"  # stop
-```
-
-Server log → `/tmp/kanban-server.log`.
-
-### Open your browser
-
-Navigate to `http://localhost:8089` and choose **Create new database** or **Open existing .sqlite**. From the top bar you can export (download), import, manage labels, search, switch theme, and add tasks.
-
-## Keyboard Shortcuts
+## Keyboard shortcuts
 
 | Shortcut | Action |
 |---|---|
@@ -46,8 +22,8 @@ Navigate to `http://localhost:8089` and choose **Create new database** or **Open
 | `Escape` | Close modals, context menus, cancel comment editor; clears search if focused |
 | `Enter` (task title) | Saves the task instead of inserting a newline |
 
-## Gotchas
+## Getting started
 
-- No undo buffer — every edit commits immediately. Export `.sqlite` to preserve state before risky changes.
-- Column renaming uses native `prompt()` dialog; no inline editing.
-- Comments accept raw HTML from contenteditable divs; always pass through `sanitizeHtml()` (strips `<script>`, event handlers, `javascript:` URLs) before display.
+1. Install **Node.js** — required for correct MIME type on `.wasm`. Python fallback (`python -m http.server`) serves static files but has *no API support*, so save/open features won't work.
+2. Run `./start.sh [port]` (defaults to 8089) or `node server.js` (foreground). Server log → `/tmp/kanban-server.log`.
+3. Open http://localhost:8089 in your browser and choose **Create new database** or **Open existing .sqlite**.
