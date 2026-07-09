@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="version" content="1.0">
-<title>Kanban Board</title>
+  <meta name="version" content="1.1">
+  <title>Kanban Board</title>
 
 <style>
 :root {
@@ -536,6 +536,30 @@ mark.search-highlight {
   .topbar-left, .topbar-right { flex-wrap: wrap; justify-content: center; }
   .modal { width: calc(100% - 24px); max-height: 95vh; margin: 8px; }
 }
+
+/* Recycle Bin Panel */
+.recycle-panel {
+  position: fixed;
+  top: 60px; right: 12px; bottom: 12px;
+  width: 420px; max-width: calc(100vw - 24px);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  z-index: 300;
+  display: none;
+  flex-direction: column;
+}
+.recycle-panel.active { display: flex; }
+.recycle-panel .header { padding: 14px 16px; font-size: 16px; font-weight: 700; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
+.recycle-panel .toolbar { padding: 8px 12px; display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--border-color); }
+.recycle-panel .bin-body { flex: 1; overflow-y: auto; padding: 4px 0; }
+.bin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.bin-table th { text-align:left; padding: 6px 12px; color: var(--text-secondary); font-weight: 600; border-bottom: 1px solid var(--border-color); position: sticky; top: 0; background: var(--bg-secondary); z-index: 1; }
+.bin-table td { padding: 5px 12px; border-bottom: 1px solid rgba(0,0,0,0.04); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; vertical-align: middle; }
+.bin-table .title-cell { cursor: pointer; color: var(--accent); text-decoration: none; }
+.bin-table input[type="checkbox"] { margin-right: 6px; accent-color: var(--accent); }
+.recycle-panel .footer { padding: 10px 12px; border-top: 1px solid var(--border-color); display: flex; gap: 8px; justify-content: space-between; }
 </style>
 </head>
 <body>
@@ -554,6 +578,7 @@ mark.search-highlight {
     <input type="file" id="importFileInput" class="hidden-input" accept=".sqlite,.db" onchange="handleImport(event)">
     <button class="btn btn-secondary" id="themeToggle" onclick="toggleTheme()" title="Toggle theme (Ctrl+T)">🌙</button>
     <button class="btn btn-secondary" onclick="openLabelManager()" title="Manage labels">&#x1F3A8;</button>
+    <i id="binToggle" style="display:none; cursor:pointer; font-size:20px;" onclick="toggleRecycleBin()" title="Recover deleted tasks">🗑</i>
   </div>
 </div>
 
@@ -610,6 +635,34 @@ mark.search-highlight {
 
 <!-- Board -->
 <div class="board" id="board"></div>
+
+<!-- Recycle Bin Panel -->
+<div class="modal-overlay" id="recycleBinOverlay" style="display:none;">
+  <div class="recycle-panel active" id="recyclePanel">
+    <div class="header" onclick="toggleRecycleBin()">
+      <span>🗑 Recycle Bin</span>
+      <button class="modal-close" onclick="event.stopPropagation(); toggleRecycleBin()">&times;</button>
+    </div>
+    <div class="toolbar">
+      <button class="btn btn-secondary" onclick="toggleRecycleBin()">Close</button>
+      <span id="binCountBadge"></span>
+    </div>
+    <div style="padding: 6px 12px; border-bottom: 1px solid var(--border-color); display:flex; gap:6px;">
+      <button class="btn btn-secondary" onclick="selectBinAll()">Select All</button>
+      <button class="btn btn-primary" onclick="recoverSelected()" id="recSelBtn" disabled>Recover Selected</button>
+      <button class="btn btn-danger" onclick="permadeleteSelected()" id="pdSelBtn" disabled>Delete Permanently</button>
+    </div>
+    <div class="bin-body">
+      <table class="bin-table">
+        <thead><tr><th></th><th>Title</th><th>Type</th><th style="min-width:90px">Date</th></tr></thead>
+        <tbody id="binBody"></tbody>
+      </table>
+    </div>
+    <div class="footer" style="justify-content:center;">
+      <button class="btn btn-danger" onclick="emptyBin()" title="Permanently delete ALL items">Empty Recycle Bin</button>
+    </div>
+  </div>
+</div>
 
 <!-- Add/Edit Task Modal -->
 <div class="modal-overlay" id="taskModal">
@@ -1090,7 +1143,8 @@ function initNewDB() {
   db = new SQL.Database();
   try {
     db.run("CREATE TABLE columns (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0)");
-    db.run("CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, column_id INTEGER NOT NULL REFERENCES columns(id), title TEXT NOT NULL, description TEXT DEFAULT '', task_type TEXT DEFAULT 'task' CHECK(task_type IN ('epic', 'task')), parent_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL, card_labels TEXT DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
+    // column_id and parent_id are nullable — required for soft-delete to clear them.
+    db.run("CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, column_id INTEGER DEFAULT NULL REFERENCES columns(id), title TEXT NOT NULL, description TEXT DEFAULT '', task_type TEXT DEFAULT 'task' CHECK(task_type IN ('epic', 'task')), parent_id INTEGER DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL, card_labels TEXT DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, display_name TEXT DEFAULT '')");
     db.run("CREATE TABLE comments (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, body TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
 
     // Seed default columns using dynamic IDs to avoid collisions on partially-initialized databases.
@@ -1099,8 +1153,17 @@ function initNewDB() {
     db.run("INSERT INTO columns (id, title, sort_order) SELECT COALESCE(MAX(id), 0) + 1, 'In Progress', 2 FROM columns");
     db.run("INSERT INTO columns (id, title, sort_order) SELECT COALESCE(MAX(id), 0) + 1, 'Done', 3 FROM columns");
 
+    // display_name column migration (idempotent).
+    try {
+      var cols3 = db.exec("PRAGMA table_info(tasks)")[0]?.values || [];
+      if (!cols3.find(c => c[1] === 'display_name')) db.run("ALTER TABLE tasks ADD COLUMN display_name TEXT DEFAULT ''");
+    } catch (e4) {}
+
     seedLabelsIfMissing();
     renderBoard();
+    
+    // Show bin toggle once database is loaded.
+    document.getElementById('binToggle').style.display = 'inline';
 
   } catch (e) {
     console.error('initNewDB failed:', e);
@@ -1172,37 +1235,6 @@ async function saveViaServer() {
   }
 }
 
-async function openDatabaseViaServer(filePath) {
-  try {
-    console.log('[openDatabaseViaServer] Opening', filePath);
-    const res = await fetchJson('/api/open-file', {
-      method: 'POST',
-      headers: { 'X-Target-Path': filePath },
-      body: JSON.stringify({ path: filePath })
-    });
-    
-    if (res.status !== 200) {
-      const errText = await res.text();
-      throw new Error(errText.slice(0, 128));
-    }
-
-    // Read response bytes directly into SQL.Database
-    const buf = new Uint8Array(await res.arrayBuffer());
-
-    db = new SQL.Database(buf);
-    await seedLabelsIfMissing();
-    renderBoard();
-    
-    // Establish the write target so subsequent autoSave calls use server endpoint
-    return setupSaveTarget(filePath)
-      .then(ok => { if (!ok) throw new Error('Unable to establish save path'); })
-      .then(() => true);
-  } catch (e) {
-    console.error('[openDatabaseViaServer] Failed:', e.message);
-    showToast('Failed to open file: ' + e.message.slice(0, 80));
-    return false;
-  }
-}
 
 async function setupSaveTarget(filePath) {
   try {
@@ -1264,6 +1296,11 @@ function hideSetupDialog() {
 }
 
 async function createNewDatabase() {
+  // Wait for sql.js to be ready if not yet loaded.
+  if (!dbReady) {
+    try { await init(); } catch (e) { console.error('Init failed:', e); showToast('Failed to initialize database engine.'); return; }
+  }
+
   initNewDB();
   
   try {
@@ -1279,18 +1316,19 @@ async function createNewDatabase() {
       await saveToFile();
     } else if ('showOpenFilePicker' in window) {
       // FSA read-only: create DB, prompt for location, then download (can't auto-save to arbitrary path).
-      showServerFilePicker('save-new')
-        .then(() => exportDatabase())
-        .catch(() => {});
+      initNewDB();
+      showServerFilePicker('save-new').finally(() => exportDatabase());
       hideSetupDialog();
       return;
     } else {
       // No FSA at all — use server file picker for a proper save.
-      await showServerFilePicker('save-new');
-      hideSetupDialog();
-      return;
+      const path = await showServerFilePicker('save-new');
+      if (!path) throw new Error('Cancelled by user.');
+
+      setupSaveTarget(path);
+      autoSave();
     }
-  } catch (e) {
+   } catch (e) {
     if (e && e.name === 'AbortError') return; // user cancelled
     console.error('Failed to create database file:', e.message || e);
     showToast('Failed to save database: ' + e.message?.slice(0, 128));
@@ -1307,8 +1345,12 @@ async function createNewDatabase() {
   
   hideSetupDialog();
 }
-
 async function openExistingDatabase() {
+  // Wait for sql.js to be ready if not yet loaded.
+  if (!dbReady) {
+    try { await init(); } catch (e) { console.error('Init failed:', e); showToast('Failed to initialize database engine.'); return; }
+  }
+
   const hasFSA = typeof showSaveFilePicker === 'function' || typeof showOpenFilePicker === 'function';
 
   if (hasFSA) {
@@ -1324,20 +1366,89 @@ async function openExistingDatabase() {
       const buf = new Uint8Array(await handle.getFile().arrayBuffer());
 
       db = new SQL.Database(buf);
+      // Schema migration for soft-delete (idempotent).
+      try { db.run("ALTER TABLE tasks ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0"); } catch(_) {}
+
       await seedLabelsIfMissing();
+      // Show bin toggle.
+      document.getElementById('binToggle').style.display = 'inline';
+
       renderBoard();
 
-      showToast('Database loaded!');
+        showToast('Database loaded!');
     } catch (pickerErr) {
       if (pickerErr?.name === 'AbortError') return;
       console.error('[openDB] FSA picker failed:', pickerErr.message || pickerErr);
       showToast('Unable to open file via File API.');
+    } finally {
+      hideSetupDialog();
     }
   } else {
     // No FSA at all — use Node.js server for reading (works over HTTP).
-    await showServerFilePicker('open');
+    await openDatabaseViaServer();
   }
 }
+
+// Open a .sqlite from the server's file picker + stream API.
+async function openDatabaseViaServer(filePath) {
+  try {
+    // If no path provided, show the server picker to get one.
+    if (!filePath) {
+      const pickedPath = await showServerFilePicker('open');
+      if (!pickedPath) return; // cancelled
+      filePath = typeof pickedPath === 'string' ? pickedPath : (pickedPath?.path || '');
+      if (!filePath) return;
+    }
+
+    // Establish auto-save target so /api/setup-save records where we write back.
+    await setupSaveTarget(filePath);
+
+    // Fetch the actual binary content from the server's API endpoint.
+    const openRes = await fetchJson('/api/open-file', { method: 'POST', body: JSON.stringify({ path: filePath }) });
+    
+    if (!openRes.ok) throw new Error('Failed to read file.');
+    
+    const bufBytes = new Uint8Array(await openRes.arrayBuffer());
+
+    db = new SQL.Database(bufBytes);
+    
+    // Ensure schema supports soft-delete.
+    function migrateSchemaForSoftDelete() {
+      try {
+        var cols = db.exec("PRAGMA table_info(tasks)")[0]?.values || [];
+        if (!cols.find(c => c[1] === 'deleted')) {
+          db.run("ALTER TABLE tasks ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0");
+        } else {
+          db.run("UPDATE tasks SET deleted = 0 WHERE deleted IS NULL OR deleted < 0");
+        }
+
+        var colInfo = {};
+        for (const c of cols) colInfo[c[1]] = c;
+        // Make column_id nullable — original schema has NOT NULL, but soft-delete needs NULL.
+        if (cols.find(c => c[1] === 'column_id') && !colInfo['column_id']?.[3]) {
+          try { db.run("PRAGMA foreign_keys=OFF"); } catch(e) {}
+          var sql = "CREATE TABLE _mig AS SELECT * FROM tasks";
+          db.exec(sql);
+          db.run("DROP TABLE tasks");
+          db.run(`CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, column_id INTEGER DEFAULT NULL, title TEXT NOT NULL, description TEXT DEFAULT '', task_type TEXT DEFAULT 'task', parent_id INTEGER DEFAULT NULL, card_labels TEXT DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, display_name TEXT DEFAULT '', deleted INTEGER NOT NULL DEFAULT 0)`);
+          db.run("INSERT INTO tasks SELECT * FROM _mig");
+          db.run("DROP TABLE _mig");
+        }
+      } catch (e) { console.error('[migrateSchemaForSoftDelete]', e.message); }
+    }
+    migrateSchemaForSoftDelete();
+
+    await seedLabelsIfMissing();
+    document.getElementById('binToggle').style.display = 'inline';
+    renderBoard();
+    showToast('Database loaded!');
+  } catch (e) {
+    if (e?.name === 'AbortError') return;
+    console.error('[openExistingDatabaseViaServer] Failed:', e.message || e);
+    showToast('Unable to open database.');
+  }
+}
+
 
 function exportDatabase() {
   const bytes = getDBBytes();
@@ -1370,8 +1481,31 @@ async function handleImport(event) {
   reader.onload = async function (e) {
     try {
        const buf = new Uint8Array(e.target.result);
-       db = new SQL.Database(buf);
-       await seedLabelsIfMissing();
+        db = new SQL.Database(buf);
+        
+        // Ensure schema supports soft-delete.
+        try {
+          var cols2 = db.exec("PRAGMA table_info(tasks)")[0]?.values || [];
+          if (!cols2.find(c => c[1] === 'deleted')) {
+            db.run("ALTER TABLE tasks ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0");
+          } else {
+            db.run("UPDATE tasks SET deleted = 0 WHERE deleted IS NULL OR deleted < 0");
+          }
+
+          var colInfo2 = {};
+          for (const c of cols2) colInfo2[c[1]] = c;
+          if (cols2.find(c => c[1] === 'column_id') && !colInfo2['column_id']?.[3]) {
+            try { db.run("PRAGMA foreign_keys=OFF"); } catch(e) {}
+            var sql3 = "CREATE TABLE _mig2 AS SELECT * FROM tasks";
+            db.exec(sql3);
+            db.run("DROP TABLE tasks");
+            db.run(`CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, column_id INTEGER DEFAULT NULL, title TEXT NOT NULL, description TEXT DEFAULT '', task_type TEXT DEFAULT 'task', parent_id INTEGER DEFAULT NULL, card_labels TEXT DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, display_name TEXT DEFAULT '', deleted INTEGER NOT NULL DEFAULT 0)`);
+            db.run("INSERT INTO tasks SELECT * FROM _mig2");
+            db.run("DROP TABLE _mig2");
+          }
+        } catch (e3) { console.error('[import]', e3.message); }
+
+        await seedLabelsIfMissing();
        renderBoard();
 
        // Try to establish FSA handle for auto-save (works on HTTPS).
@@ -1452,7 +1586,11 @@ async function showServerFilePicker(mode, suggestedPath) {
   modal.classList.add('active');
   
   renderPickerList(_pickerCurrentDir);
-  return true; // signal that the picker was shown and confirmed via confirmPicker() callback flow
+
+  // Return the confirmed path via a Promise.
+  return new Promise((resolve, reject) => {
+    window.__serverFilePickerResolve = resolve;
+  });
 }
 
 function closeServerFilePicker() {
@@ -1574,6 +1712,20 @@ function confirmPicker() {
 
   closeServerFilePicker();
 
+    // Resolve the promise from showServerFilePicker if active (from openExistingDatabase).
+    const __resolver = window.__serverFilePickerResolve;
+    if (__resolver) {
+      window.__serverFilePickerResolve = null;
+      return openDatabaseViaServer(filePath)
+        .then(success => success || showToast('Opening failed — use "Open .sqlite" to try again.'))
+        .catch(e => {
+          console.error('[confirmPicker via resolver] Open failed:', e.message);
+          showToast('Opening failed — ' + e.message.slice(0, 80));
+        })
+        .finally(() => hideSetupDialog());
+    }
+
+    // Normal confirmPicker flow (save-new mode from createNewDatabase).
   if (_pickerMode === 'open') {
     return openDatabaseViaServer(filePath)
       .then(success => success || showToast('Opening failed — use "Open .sqlite" to try again.'))
@@ -1621,7 +1773,7 @@ function createColumnElement(col, filter = '') {
   columnDiv.className = 'column';
   columnDiv.dataset.columnId = col.id;
 
-  let query = "SELECT * FROM tasks WHERE column_id = ? ORDER BY sort_order";
+  let query = "SELECT * FROM tasks WHERE column_id = ? AND deleted = 0 ORDER BY sort_order";
   let result = db.exec(query, [col.id]);
   const allTasks = [];
   if (result.length > 0) {
@@ -1704,7 +1856,7 @@ function createCardElement(task, colId, commentMap = {}, search = '') {
   let typeIcon = '';
   if (task.task_type === 'epic') {
     try {
-      const childResult = db.exec("SELECT COUNT(*) AS c FROM tasks WHERE parent_id = ?", [task.id]);
+      const childResult = db.exec("SELECT COUNT(*) AS c FROM tasks WHERE parent_id = ? AND deleted = 0", [task.id]);
       const childCount = childResult.length > 0 ? childResult[0].values[0][0] : 0;
       typeIcon += `<span style="float:right;color:var(--text-secondary);font-size:12px;">📁 (${childCount})</span>`;
     } catch(e) {
@@ -1938,19 +2090,6 @@ function handleDrop(e, targetColumnId) {
   }
 }
 
-function deleteTaskCascade(taskId) {
-  try {
-    db.run("DELETE FROM comments WHERE task_id = ?", [taskId]);
-    const kids = db.exec("SELECT id FROM tasks WHERE parent_id = ?", [taskId]);
-    if (kids.length > 0) {
-      for (const k of mapRows(kids[0])) {
-        deleteTaskCascade(k.id);
-      }
-    }
-    db.run("DELETE FROM tasks WHERE id = ?", [taskId]);
-  } catch(e) {}
-}
-
 // ========== TASK CRUD ==========
 function openAddTask(columnId, parentId) {
   document.getElementById('taskModalTitle').textContent = 'New Task';
@@ -1991,6 +2130,7 @@ function saveTask() {
       db.run("UPDATE tasks SET title = ?, display_name = ?, column_id = ?, task_type = ?, card_labels = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [title, displayName || null, colId, taskType, labels, parseInt(id)]);
     } else {
       try { db.run("ALTER TABLE tasks ADD COLUMN display_name TEXT DEFAULT ''"); } catch(_) {} // idempotent migration
+      try { db.run("ALTER TABLE tasks ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0"); } catch(_) {} // soft-deleted flag
       const parentId = document.getElementById('addTaskParentId').value;
       const maxOrder = db.exec("SELECT COALESCE(MAX(sort_order), -1) AS m FROM tasks WHERE column_id = ?", [colId]);
       const nextOrder = (maxOrder[0] ? maxOrder[0].values[0][0] : 0) + 1;
@@ -2022,22 +2162,9 @@ function deleteTaskFromModal() {
 
 function quickDelete(taskId) {
   if (!confirm('Delete this task?')) return;
-
-  // Cascade: delete child comments and all descendants recursively
-  try {
-    const childrenResult = db.exec("SELECT id FROM tasks WHERE parent_id = ?", [taskId]);
-    if (childrenResult.length > 0) {
-      const children = mapRows(childrenResult[0]);
-      for (const child of children) {
-        deleteTaskCascade(child.id);
-      }
-    }
-  } catch(e) {}
-
-  db.run("DELETE FROM tasks WHERE id = ?", [taskId]);
-  autoSave();
+  softDeleteTask(parseInt(taskId));
   renderBoard();
-  showToast('Task deleted.');
+  loadBinContent(); // keep recycle bin fresh without requiring a manual open
 }
 
 function execCmd(command, value) {
@@ -2541,18 +2668,15 @@ function moveColumn(colId, direction) {
 }
 
 function deleteColumn(colId) {
-  if (!confirm('Delete this column and all its tasks?')) return;
+  if (!confirm('Delete this column? Their tasks will be moved to the recycle bin.')) return;
   colId = parseInt(colId);
 
   try {
-    // Get task IDs first to build a safe IN list
     const result = db.exec("SELECT id FROM tasks WHERE column_id = ?", [colId]);
     const taskIds = result.length > 0 ? mapRows(result[0]).map(t => t.id) : [];
+    for (const tid of taskIds) softDeleteTask(tid);
 
-    for (const tid of taskIds) {
-      db.run("DELETE FROM comments WHERE task_id = ?", [tid]);
-      db.run("DELETE FROM tasks WHERE id = ?", [tid]);
-    }
+    // Hard-delete the column (columns are never recycled).
     db.run("DELETE FROM columns WHERE id = ?", [colId]);
 
     autoSave();
@@ -2703,8 +2827,191 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// ========== START ==========
-init();
+// ========== RECYCLE BIN / SOFT DELETE ==========
+let _binOpen = false;
+const RECYCLE_COLUMN_ID = -1; // pseudo-column for recovered items
+
+function softDeleteTask(taskId) {
+  // Bottom-up DFS: save descendants' parent_ids before clearing them, so we can restore hierarchy later.
+  const descendantMap = {}; // childId -> oldParentId
+  function saveParentIds(tid) {
+    try {
+      const kids = db.exec("SELECT id FROM tasks WHERE parent_id = ?", [tid]);
+      if (!kids.length) return;
+      for (const row of mapRows(kids[0])) saveParentIds(row.id); // recurse deeper first
+    } catch (e) { console.error('[softDeleteTask-saveParentIds]', e.message); return; }
+  }
+  saveParentIds(taskId);
+
+  function ensureDeletedCol() {
+    try {
+      var cols = db.exec("PRAGMA table_info(tasks)")[0]?.values || [];
+      if (!cols.find(c => c[1] === 'deleted')) {
+        console.log('[softDeleteTask] migrating: adding deleted column');
+        db.run("ALTER TABLE tasks ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0");
+      }
+    } catch (e2) {}
+  }
+  ensureDeletedCol();
+
+  // Walk and soft-delete — only set the flag, don't touch FK columns.
+  function cascadeSoft(tid) {
+    try {
+      db.run("DELETE FROM comments WHERE task_id = ?", [tid]);
+      const kids = db.exec("SELECT id FROM tasks WHERE parent_id = ?", [tid]);
+      if (kids.length) for (const k of mapRows(kids[0])) cascadeSoft(k.id);
+      db.run("UPDATE tasks SET deleted=1 WHERE id=?", [tid]);
+    } catch (e) { console.error('[cascadeSoft]', e.message); }
+  }
+  cascadeSoft(taskId);
+
+  // Save parent_ids for descendants so recovery can restore hierarchy.
+  for (const [id, pid] of Object.entries(descendantMap)) db.run("UPDATE tasks SET parent_id=? WHERE id=?", [pid, parseInt(id)]);
+
+  autoSave();
+}
+
+// Show or hide the recycle bin panel.
+function toggleRecycleBin() {
+  _binOpen = !_binOpen;
+  if (_binOpen) {
+    loadBinContent();
+    document.getElementById('recyclePanel').classList.add('active');
+    document.getElementById('recycleBinOverlay').style.display = 'flex';
+  } else {
+    closeRecycleBin();
+  }
+}
+
+function closeRecycleBin() {
+  _binOpen = false;
+  document.getElementById('recyclePanel').classList.remove('active');
+  document.getElementById('recycleBinOverlay').style.display = 'none';
+}
+
+// Render recycle bin table from DB.
+async function loadBinContent() {
+  const result = db.exec("SELECT id, title, task_type, created_at FROM tasks WHERE deleted = 1 ORDER BY updated_at DESC");
+  let rows = [];
+  if (result.length > 0) rows = mapRows(result[0]);
+
+  document.getElementById('binCountBadge').textContent = '(' + rows.length + ' item' + (rows.length !== 1 ? 's' : '') + ')';
+  const tbody = document.getElementById('binBody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-secondary);">Bin is empty</td></tr>';
+    return;
+  }
+
+  let html = '';
+  for (const t of rows) {
+    const icon = t.task_type === 'epic' ? '📁' : '—';
+    html += `<tr>
+      <td><input type="checkbox" onchange="updateBinButtons()"></td>
+      <td class="title-cell" onclick="openDetail(${t.id})" title="${escapeHtml(t.title || '')}">${escapeHtml((t.display_name && t.display_name.trim()) ? t.display_name : (t.title || ''))}</td>
+      <td style="width:40px;text-align:center;">${icon}</td>
+      <td style="white-space:nowrap;">${(t.created_at || '').slice(5, 16)}</td>
+    </tr>`;
+  }
+  tbody.innerHTML = html;
+}
+
+function updateBinButtons() {
+  const checked = document.querySelectorAll('#binBody input[type=checkbox]:checked');
+  const n = checked.length;
+  document.getElementById('recSelBtn').disabled = !n;
+  document.getElementById('pdSelBtn').disabled = !n;
+}
+
+// Gather IDs of all checkboxes.
+function _getBinCheckedIds() {
+  return Array.from(document.querySelectorAll('#binBody input[type=checkbox]:checked'))
+    .map(cb => cb.closest('tr')?.querySelector('.title-cell')?.getAttribute('onclick')?.match(/\d+/)?.[0]);
+}
+
+// Restore selected tasks from the bin.
+function recoverSelected() {
+  const ids = _getBinCheckedIds();
+  if (!ids.length) return;
+
+  try {
+    for (let i = 0; i < ids.length; i++) {
+      db.run("UPDATE tasks SET deleted=0 WHERE id=?", [ids[i]]);
+    }
+
+    autoSave();
+    loadBinContent();
+    renderBoard(); // refresh board to show recovered cards
+    showToast('Restored ' + ids.length + ' item' + (ids.length !== 1 ? 's' : '') + '.');
+  } catch(e) { console.error('Recover failed:', e); }
+}
+
+// Permanently delete selected tasks from the bin.
+function permadeleteSelected() {
+  const ids = _getBinCheckedIds();
+  if (!ids.length) return;
+  if (!confirm('Permanently delete ' + ids.length + ' item(s)? This cannot be undone.')) return;
+
+  try {
+    // Delete children-first, then the tasks themselves.
+    for (let i = 0; i < ids.length; i++) {
+      db.run("DELETE FROM comments WHERE task_id=?", [ids[i]]);
+      // Recurse on orphaned children.
+      const kidsResult = db.exec("SELECT id FROM tasks WHERE parent_id=? AND deleted=1", [ids[i]]);
+      if (kidsResult.length) for (const k of mapRows(kidsResult[0])) {
+        permadeleteTaskRecursive(parseInt(k.id));
+      }
+    }
+    // Finally delete the selected rows.
+    for (let i = 0; i < ids.length; i++) db.run("DELETE FROM tasks WHERE id=?", [ids[i]]);
+
+    autoSave();
+    loadBinContent();
+    showToast('Deleted permanently.');
+  } catch(e) { console.error('PermaDelete failed:', e); }
+}
+
+function permadeleteTaskRecursive(taskId) {
+  try {
+    db.run("DELETE FROM comments WHERE task_id=?", [taskId]);
+    const kids = db.exec("SELECT id FROM tasks WHERE parent_id=?", [taskId]);
+    if (kids.length) for (const k of mapRows(kids[0])) permadeleteTaskRecursive(parseInt(k.id));
+    db.run("DELETE FROM tasks WHERE id=?", [taskId]);
+  } catch(e) {}
+}
+
+// Empty the entire bin.
+function emptyBin() {
+  const count = db.exec("SELECT COUNT(*) as c FROM tasks WHERE deleted=1")[0]?.values[0][0];
+  if (count === 0 || !confirm('Empty recycle bin? Permanently delete ' + count + ' item(s).')) return;
+
+  // Delete all descendants recursively. Query all deleted and delete each one with its children.
+  const allDeleted = db.exec("SELECT id FROM tasks WHERE deleted=1");
+  try {
+    for (const r of mapRows(allDeleted?.[0] || [])) permadeleteTaskRecursive(r.id);
+    // Also delete any remaining (orphans not reachable from root).
+    const remaining = db.exec("SELECT id FROM tasks WHERE deleted=1");
+    for (const r of mapRows(remaining?.[0] || [])) {
+      try {
+        db.run("DELETE FROM comments WHERE task_id=?", [r.id]);
+        db.run("DELETE FROM tasks WHERE id=?", [r.id]);
+      } catch(_) {}
+    }
+  } catch(e) {}
+
+  autoSave();
+  loadBinContent();
+  showToast('Recycle bin emptied.');
+}
+
+// Select/deselect all items in the bin.
+function selectBinAll() {
+  const boxes = document.querySelectorAll('#binBody input[type=checkbox]');
+  if (!boxes.length) return;
+  const anyChecked = Array.from(boxes).some(b => b.checked);
+  for (const box of boxes) box.checked = !anyChecked;
+  updateBinButtons();
+}
+
 </script>
 </body>
 </html>
