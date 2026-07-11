@@ -1,6 +1,6 @@
 # Kanban Board — Agent Guide
 
-Single-file app (`index.html`, ~2980 lines), zero dependencies, no build step. SQLite via sql.js WebAssembly runs in-browser; Node HTTP server serves `.wasm` with correct MIME type and provides disk persistence API endpoints.
+Single-file app (`index.html`, 3102 lines), zero dependencies, no build step. SQLite via sql.js WebAssembly runs in-browser; Node HTTP server serves `.wasm` with correct MIME type and provides disk persistence API endpoints.
 
 ## Run commands
 
@@ -35,9 +35,9 @@ Manual edit-and-refresh only — no build step, no package manager, no lint/type
 
 ## Architecture
 
-- **Single file**: `index.html` (~2980 lines) — CSS `<style>`, inline JS, no build step or dependencies.
+- **Single file**: `index.html` (3102 lines) — CSS `<style>`, inline JS, no build step or dependencies.
 - **Database**: sql.js (SQLite WebAssembly) runs in-memory via `initSqlJs({ locateFile: file => 'assets/' + file })`. WASM binary at `assets/sql-wasm.wasm` (~650KB), JS loader at `assets/sql-wasm.js` (~50KB).
-- **Persistence**: DB exported to base64 and saved either via browser File System Access API (HTTPS) or the Node server's `/api/save-db` (HTTP). Labels are stored inside each `.sqlite` file itself (`labels_prefs(key, value TEXT)` table), so different databases have independent label sets. Theme toggle state is persisted per-database as well.
+- **Persistence**: DB exported to base64 and saved either via browser File System Access API (HTTPS) or the Node server's `/api/save-db` (HTTP). Labels are stored inside each `.sqlite` file itself (`labels_prefs(key, value TEXT)` table), so different databases have independent label sets. Theme preference is persisted in a cookie; last DB path is also stored as a cookie for auto-resume on load (HTTP only — HTTPS uses FileHandles that can't be serialized).
 - **Schema**: 3 main tables + `labels_prefs` — `columns`, `tasks` (`task_type`: 'epic'/'task', `parent_id`: INTEGER, `card_labels`: TEXT, `display_name`: TEXT), `comments`. Default columns ("To Do", "Blocked", "In Progress", "Done") defined in `DEFAULT_COLUMNS`.
 - **Display name**: Optional per-task field that overrides the title on cards. Stored as `tasks.display_name` (TEXT). Auto-migrated via `ALTER TABLE` if column doesn't exist yet. If set and non-empty, displayed on cards instead of the canonical title; search still filters by title + description only.
 - **Manage Labels** (`openLabelManager()`): Button in top bar opens a modal with per-label name, display alias (for card labels), color picker, and 🗑 delete button. Always closes any other active overlay first so it never stacks under them. Uses server's `kanban_prefs.json` via `/api/preferences?key=kanban_labels` to seed labels on new databases (falls back to hardcoded defaults).
@@ -49,6 +49,9 @@ Manual edit-and-refresh only — no build step, no package manager, no lint/type
 
 ## Gotchas
 
+- **FSA only works on HTTPS.** Chrome/Edge expose `showOpenFilePicker` / `showSaveFilePicker` on HTTP (localhost) even though they don't work there — always guard with `location.protocol === 'https:'` before checking for these features. All FSA checks in the app use this pattern.
+- **Cookie-based resume is HTTP-only.** The last DB path is stored as a cookie (`kanban_db_path`) and auto-resumed on load via `openDatabaseViaServer()`. HTTPS users never get cookie resume (FileHandles can't be serialized). If resume fails, show setup dialog with a toast.
+- **`openDatabaseViaServer()` returns boolean.** It must return `true` on success, `false` on cancel/empty path/failure — callers use `.then(success => success || showToast(...))`. Returning undefined (via bare return) triggers the error toast spuriously.
 - **No UI update on soft-delete.** `softDeleteTask()` updates the DB and calls `autoSave()`, but does NOT call `renderBoard()`. Any caller (e.g. `quickDelete`) must explicitly call `renderBoard()` after deletion — otherwise cards vanish from their column but no refresh happens, leaving stale DOM state.
 - **`locateFile` path must stay relative** (`'assets/' + file`). Absolute paths break WASM loading entirely.
 - **Column deletion cascades manually**: comments → tasks → column (not DB CASCADE). Do not add `ON DELETE CASCADE` on the column_id side without implementing manual cleanup first.
@@ -62,7 +65,7 @@ Manual edit-and-refresh only — no build step, no package manager, no lint/type
 
 ## Soft-delete / Recycle bin
 
-Tasks are soft-deleted (`deleted=1`) via bottom-up DFS that saves each descendant's `parent_id` before clearing them. Recovery sets `deleted=0`; items reappear under their original parents since `parent_id` is never cleared during deletion — full context preserved. ALTER TABLE migration runs in `initNewDB()`, `handleImport`, and `openExistingDatabase` via TRY/CATCH, plus `softDeleteTask()` for old databases. Both column-deletion flow and task-delete path (`quickDelete`) use the same function now.
+Tasks are soft-deleted (`deleted=1`) via bottom-up DFS (deleting comments first, then marking each descendant). The `parent_id` column is never modified during deletion, so recovery sets `deleted=0` and items reappear under their original parents automatically. ALTER TABLE migration runs in `initNewDB()`, `handleImport()`, and `openExistingDatabase()` via TRY/CATCH, plus `softDeleteTask()` for old databases. Both the column-deletion flow and task-delete path (`quickDelete`) use `softDeleteTask()` now.
 
 ## WYSIWYG editors / Comments
 

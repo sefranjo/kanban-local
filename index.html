@@ -1145,7 +1145,7 @@ function initNewDB() {
     db.run("CREATE TABLE columns (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0)");
     // column_id and parent_id are nullable — required for soft-delete.
     db.run("CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, column_id INTEGER DEFAULT NULL REFERENCES columns(id), title TEXT NOT NULL, description TEXT DEFAULT '', task_type TEXT DEFAULT 'task' CHECK(task_type IN ('epic', 'task')), parent_id INTEGER DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL, card_labels TEXT DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, display_name TEXT DEFAULT '', deleted INTEGER NOT NULL DEFAULT 0)");
-    db.run("CREATE TABLE comments (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, body TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
+    db.run("CREATE TABLE comments (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, body TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, deleted INTEGER NOT NULL DEFAULT 0)");
 
     // Seed default columns using dynamic IDs to avoid collisions on partially-initialized databases.
     db.run("INSERT INTO columns (id, title, sort_order) SELECT COALESCE(MAX(id), 0) + 1, 'To Do', 0 FROM columns");
@@ -1298,7 +1298,7 @@ async function createNewDatabase() {
   initNewDB();
   
   try {
-    if ('showSaveFilePicker' in window) {
+    if (location.protocol === 'https:' && 'showSaveFilePicker' in window) {
       const handle = await showSaveFilePicker({
         suggestedName: 'kanban_' + new Date().toISOString().slice(0, 10) + '.sqlite',
         types: [{
@@ -1308,7 +1308,7 @@ async function createNewDatabase() {
       });
       savedFileHandle = handle;
       await saveToFile();
-    } else if ('showOpenFilePicker' in window) {
+    } else if (location.protocol === 'https:' && 'showOpenFilePicker' in window) {
       // FSA read-only: create DB, prompt for location, then download (can't auto-save to arbitrary path).
       initNewDB();
       showServerFilePicker('save-new').finally(() => exportDatabase());
@@ -1321,6 +1321,7 @@ async function createNewDatabase() {
 
       setupSaveTarget(path);
       autoSave();
+      setCookie('kanban_db_path', savedFilePath || path);
     }
    } catch (e) {
     if (e && e.name === 'AbortError') return; // user cancelled
@@ -1337,6 +1338,7 @@ async function createNewDatabase() {
     return;
   }
   
+  setCookie('kanban_db_path', savedFilePath);
   hideSetupDialog();
 }
 async function openExistingDatabase() {
@@ -1345,10 +1347,12 @@ async function openExistingDatabase() {
     try { await init(); } catch (e) { console.error('Init failed:', e); showToast('Failed to initialize database engine.'); return; }
   }
 
-  const hasFSA = typeof showSaveFilePicker === 'function' || typeof showOpenFilePicker === 'function';
+  // FSA only works reliably over secure origins (HTTPS or localhost with proper flags);
+  // don't trust `typeof showOpenFilePicker` alone — Chrome shows it even on HTTP.
+  const hasFSA = location.protocol === 'https:' && typeof showSaveFilePicker === 'function' && typeof showOpenFilePicker === 'function';
 
   if (hasFSA) {
-    // FSA is available — use the file picker (works only on HTTPS).
+    // FSA is available and we're on HTTPS — use the native file picker.
     try {
       const [handle] = await showOpenFilePicker({
         types: [{
@@ -1389,9 +1393,9 @@ async function openDatabaseViaServer(filePath) {
     // If no path provided, show the server picker to get one.
     if (!filePath) {
       const pickedPath = await showServerFilePicker('open');
-      if (!pickedPath) return; // cancelled
+      if (!pickedPath) return false; // cancelled
       filePath = typeof pickedPath === 'string' ? pickedPath : (pickedPath?.path || '');
-      if (!filePath) return;
+      if (!filePath) return false;
     }
 
     // Establish auto-save target so /api/setup-save records where we write back.
@@ -1421,9 +1425,20 @@ async function openDatabaseViaServer(filePath) {
         }
 
         var colInfo = {};
-        for (const c of cols) colInfo[c[1]] = c;
-        // Make column_id nullable — original schema has NOT NULL, but soft-delete needs NULL.
-        if (cols.find(c => c[1] === 'column_id') && !colInfo['column_id']?.[3]) {
+          for (const c of cols) colInfo[c[1]] = c;
+
+          // Migrate comments table to support soft-delete.
+          try {
+            var commentCols = db.exec("PRAGMA table_info(comments)")[0]?.values || [];
+            if (!commentCols.find(c => c[1] === 'deleted')) {
+              db.run("ALTER TABLE comments ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0");
+            } else {
+              db.run("UPDATE comments SET deleted = 0 WHERE deleted IS NULL OR deleted < 0");
+            }
+          } catch(e) {}
+
+          // Make column_id nullable — original schema has NOT NULL, but soft-delete needs NULL.
+          if (cols.find(c => c[1] === 'column_id') && !colInfo['column_id']?.[3]) {
           try { db.run("PRAGMA foreign_keys=OFF"); } catch(e) {}
           var sql = "CREATE TABLE _mig AS SELECT * FROM tasks";
           db.exec(sql);
@@ -1440,8 +1455,12 @@ async function openDatabaseViaServer(filePath) {
     document.getElementById('binToggle').style.display = 'inline';
     renderBoard();
     showToast('Database loaded!');
+
+    // Persist path for cookie-based resume on next load (HTTP only).
+    if (filePath) { setCookie('kanban_db_path', filePath); }
+    return true;
   } catch (e) {
-    if (e?.name === 'AbortError') return;
+    if (e?.name === 'AbortError') return false;
     console.error('[openExistingDatabaseViaServer] Failed:', e.message || e);
     showToast('Unable to open database.');
   }
@@ -1460,7 +1479,7 @@ function exportDatabase() {
   showToast('Database exported!');
 
   // Establish FSA handle so future auto-saves can write back
-  if ('showSaveFilePicker' in window && !savedFileHandle) {
+  if (location.protocol === 'https:' && 'showSaveFilePicker' in window && !savedFileHandle) {
     showSaveFilePicker({
       suggestedName: a.download,
       types: [{ description: 'SQLite Database', accept: { 'application/x-sqlite3': ['.sqlite'] } }]
@@ -1492,6 +1511,17 @@ async function handleImport(event) {
 
           var colInfo2 = {};
           for (const c of cols2) colInfo2[c[1]] = c;
+
+          // Migrate comments table to support soft-delete.
+          try {
+            var commentCols = db.exec("PRAGMA table_info(comments)")[0]?.values || [];
+            if (!commentCols.find(c => c[1] === 'deleted')) {
+              db.run("ALTER TABLE comments ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0");
+            } else {
+              db.run("UPDATE comments SET deleted = 0 WHERE deleted IS NULL OR deleted < 0");
+            }
+          } catch(e) {}
+
           if (cols2.find(c => c[1] === 'column_id') && !colInfo2['column_id']?.[3]) {
             try { db.run("PRAGMA foreign_keys=OFF"); } catch(e) {}
             var sql3 = "CREATE TABLE _mig2 AS SELECT * FROM tasks";
@@ -1507,7 +1537,7 @@ async function handleImport(event) {
        renderBoard();
 
        // Try to establish FSA handle for auto-save (works on HTTPS).
-       if ('showSaveFilePicker' in window) {
+        if (location.protocol === 'https:' && 'showSaveFilePicker' in window) {
          try {
            const handle = await showSaveFilePicker({
              suggestedName: file.name,
@@ -1787,7 +1817,7 @@ function createColumnElement(col, filter = '') {
   if (taskIdSet.length > 0) {
     const placeholders = taskIdSet.map(() => '?').join(',');
     try {
-      const cntResult = db.exec(`SELECT task_id, COUNT(*) as c FROM comments WHERE task_id IN (${placeholders}) GROUP BY task_id`, taskIdSet);
+      const cntResult = db.exec(`SELECT task_id, COUNT(*) as c FROM comments WHERE task_id IN (${placeholders}) AND deleted = 0 GROUP BY task_id`, taskIdSet);
       if (cntResult.length > 0) {
         const rows = mapRows(cntResult[0]);
         for (const r of rows) commentMap[r.task_id] = r.c;
@@ -2242,7 +2272,7 @@ function cancelCommentEditor() {
 }
 
 // ========== TASK DETAIL (with comments) ==========
-function openDetail(taskId) {
+function openDetail(taskId, showDeletedComments) {
   try {
     const result = db.exec("SELECT * FROM tasks WHERE id = ?", [taskId]);
     if (result.length === 0) return;
@@ -2272,7 +2302,7 @@ function openDetail(taskId) {
     document.getElementById('detailCardLabels').value = task.card_labels || '';
     renderLabelPicker('detailLabelPills', 'detailCardLabels', task.card_labels);
 
-    loadComments(taskId);
+    loadComments(taskId, showDeletedComments);
     renderLinkedTasks(task);
 
     openModal('detailModal');
@@ -2436,12 +2466,12 @@ function unlinkParentTask() {
   renderBoard();
 }
 
-function loadComments(taskId) {
+function loadComments(taskId, showDeleted) {
   const list = document.getElementById('commentList');
   list.innerHTML = '';
 
   try {
-    const result = db.exec("SELECT * FROM comments WHERE task_id = ? ORDER BY created_at ASC", [taskId]);
+    const result = db.exec("SELECT * FROM comments WHERE task_id = ?" + (showDeleted ? '' : ' AND deleted = 0') + " ORDER BY created_at ASC", [taskId]);
     if (result.length === 0) return;
     const comments = mapRows(result[0]);
 
@@ -2479,9 +2509,9 @@ function loadComments(taskId) {
   populateToolbar();
 }
 
-function renderComments(taskId) {
+function renderComments(taskId, showDeleted) {
   try {
-    const result = db.exec("SELECT * FROM comments WHERE task_id = ? ORDER BY created_at ASC", [taskId]);
+    const result = db.exec("SELECT * FROM comments WHERE task_id = ?" + (showDeleted ? '' : ' AND deleted = 0') + " ORDER BY created_at ASC", [taskId]);
     if (result.length === 0) {
       document.getElementById('commentList').innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">No comments yet.</p>';
       return;
@@ -2493,7 +2523,7 @@ function renderComments(taskId) {
       c._editing = !!document.querySelector('#editCommentText');
     }
 
-    loadComments(taskId);
+    loadComments(taskId, showDeleted);
   } catch (err) {}
 }
 
@@ -2514,7 +2544,7 @@ function editComment(commentId, taskId) {
 function loadCommentsWithEditFlag(taskId, editId) {
   const list = document.getElementById('commentList');
   try {
-    const result = db.exec("SELECT * FROM comments WHERE task_id = ? ORDER BY created_at ASC", [taskId]);
+    const result = db.exec("SELECT * FROM comments WHERE task_id = ? AND deleted = 0 ORDER BY created_at ASC", [taskId]);
     if (result.length === 0) return;
     let comments = mapRows(result[0]);
 
@@ -2759,20 +2789,39 @@ document.addEventListener('click', e => {
   overlay.classList.remove('active');
 });
 
-// ========== THEME (per-session, not persisted) ==========
+// ========== COOKIES ==========
+function getCookie(name) {
+  const m = document.cookie.match('(^|[^;]+)\s*' + name + '\\s*=\\s*([^;]+)');
+  return m ? decodeURIComponent(m[2]) : null;
+}
+
+function setCookie(name, value) {
+  var d = new Date();
+  d.setFullYear(d.getFullYear() + 1);
+  document.cookie = name + '=' + encodeURIComponent(value) + ';path=/;expires=' + d.toUTCString();
+}
+
+// ========== THEME (cookie-persisted; user choice beats OS preference) ==========
 function toggleTheme() {
   const html = document.documentElement;
   const current = html.getAttribute('data-theme');
   const next = current === 'dark' ? 'light' : 'dark';
   html.setAttribute('data-theme', next);
   document.getElementById('themeToggle').textContent = next === 'dark' ? '☀️' : '🌙';
+  setCookie('kanban_theme', next);
 }
 
-// Auto-detect system preference on load.
-if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-  document.documentElement.setAttribute('data-theme', 'dark');
-  document.getElementById('themeToggle').textContent = '☀️';
-}
+// Apply stored theme or system preference on load.
+(function() {
+  var saved = getCookie('kanban_theme');
+  if (saved) {
+    document.documentElement.setAttribute('data-theme', saved);
+    document.getElementById('themeToggle').textContent = saved === 'dark' ? '☀️' : '🌙';
+  } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    document.getElementById('themeToggle').textContent = '☀️';
+  }
+})();
 
 // ========== TOAST ==========
 function showToast(msg) {
@@ -2791,6 +2840,21 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   // Populate all editor toolbars from the shared constant
   populateToolbar();
+
+  // Attempt to resume last DB (HTTP only — HTTPS uses FileHandles that can't be serialized).
+  // Same protocol guard: don't trust `typeof` checks alone, Chrome exposes FSA on HTTP.
+  if (!(location.protocol === 'https:' && ('showSaveFilePicker' in window) && ('showOpenFilePicker' in window))) {
+    var savedPath = getCookie('kanban_db_path');
+    if (savedPath) {
+      // Wait for sql.js before attempting to open (it loads async on page load).
+      (async function() {
+        try {
+          if (!dbReady) await init();
+        } catch(e) { console.error('[resumeDB] init failed:', e.message); return; }
+        openDatabaseViaServer(savedPath).finally(hideSetupDialog);
+      })();
+    }
+  }
 });
 
 // ========== KEYBOARD SHORTCUTS ==========
@@ -2836,7 +2900,10 @@ function softDeleteTask(taskId) {
     try {
       const kids = db.exec("SELECT id FROM tasks WHERE parent_id = ?", [tid]);
       if (!kids.length) return;
-      for (const row of mapRows(kids[0])) saveParentIds(row.id); // recurse deeper first
+      for (const row of mapRows(kids[0])) {
+        descendantMap[row.id] = tid; // record parent before descending deeper
+        saveParentIds(row.id);       // recurse deeper first (bottom-up)
+      }
     } catch (e) { console.error('[softDeleteTask-saveParentIds]', e.message); return; }
   }
   saveParentIds(taskId);
@@ -2855,7 +2922,8 @@ function softDeleteTask(taskId) {
   // Walk and soft-delete — only set the flag, don't touch FK columns.
   function cascadeSoft(tid) {
     try {
-      db.run("DELETE FROM comments WHERE task_id = ?", [tid]);
+      // Mark comments as soft-deleted so they can be restored with the task.
+      db.run("UPDATE comments SET deleted=1 WHERE task_id = ?", [tid]);
       const kids = db.exec("SELECT id FROM tasks WHERE parent_id = ?", [tid]);
       if (kids.length) for (const k of mapRows(kids[0])) cascadeSoft(k.id);
       db.run("UPDATE tasks SET deleted=1 WHERE id=?", [tid]);
@@ -2905,7 +2973,7 @@ async function loadBinContent() {
     const icon = t.task_type === 'epic' ? '📁' : '—';
     html += `<tr>
       <td><input type="checkbox" onchange="updateBinButtons()"></td>
-      <td class="title-cell" onclick="openDetail(${t.id})" title="${escapeHtml(t.title || '')}">${escapeHtml((t.display_name && t.display_name.trim()) ? t.display_name : (t.title || ''))}</td>
+      <td class="title-cell" onclick="openDetail(${t.id}, true)" title="${escapeHtml(t.title || '')}">${escapeHtml((t.display_name && t.display_name.trim()) ? t.display_name : (t.title || ''))}</td>
       <td style="width:40px;text-align:center;">${icon}</td>
       <td style="white-space:nowrap;">${(t.created_at || '').slice(5, 16)}</td>
     </tr>`;
@@ -2933,7 +3001,15 @@ function recoverSelected() {
 
   try {
     for (let i = 0; i < ids.length; i++) {
+      // Restore this specific task's own comments (not descendants' — they may have been manually deleted).
       db.run("UPDATE tasks SET deleted=0 WHERE id=?", [ids[i]]);
+      function restoreComments(tid) {
+        db.run("UPDATE comments SET deleted=0 WHERE task_id=? AND deleted=1", [tid]);
+        const kids = db.exec("SELECT id FROM tasks WHERE parent_id=? AND deleted=1", [tid]);
+        if (kids.length) for (const k of mapRows(kids[0])) restoreComments(parseInt(k.id));
+      }
+      // Only cascade into soft-deleted descendants; skip active ones whose comments may have been manually deleted.
+      restoreComments(ids[i]);
     }
 
     autoSave();
@@ -2959,12 +3035,28 @@ function permadeleteSelected() {
         permadeleteTaskRecursive(parseInt(k.id));
       }
     }
+
+    // Also delete comments from any descendant tasks that were already recovered (deleted=0).
+    // These would otherwise be orphaned since their parent task is gone.
+    function collectAllDescendantIds(tid, collector) {
+      const kids = db.exec("SELECT id FROM tasks WHERE parent_id=?", [tid]);
+      if (kids.length) for (const k of mapRows(kids[0])) {
+        collector.push(parseInt(k.id));
+        collectAllDescendantIds(parseInt(k.id), collector);
+      }
+    }
+    const allDesc = [];
+    for (let i = 0; i < ids.length; i++) collectAllDescendantIds(ids[i], allDesc);
+    for (const did of allDesc) db.run("DELETE FROM comments WHERE task_id=?", [did]);
+
     // Finally delete the selected rows.
     for (let i = 0; i < ids.length; i++) db.run("DELETE FROM tasks WHERE id=?", [ids[i]]);
 
     autoSave();
-    loadBinContent();
-    showToast('Deleted permanently.');
+      loadBinContent();
+      showToast('Deleted permanently.');
+      // Clear any open comment views for deleted tasks.
+      document.querySelectorAll('#binBody tr[id^="comment-view-"]').forEach(row => row.remove());
   } catch(e) { console.error('PermaDelete failed:', e); }
 }
 
@@ -2999,6 +3091,8 @@ function emptyBin() {
   autoSave();
   loadBinContent();
   showToast('Recycle bin emptied.');
+  // Clear any open comment views — everything is gone now.
+  document.querySelectorAll('#binBody tr[id^="comment-view-"]').forEach(row => row.remove());
 }
 
 // Select/deselect all items in the bin.
