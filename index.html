@@ -568,7 +568,7 @@ mark.search-highlight {
 <div class="topbar">
   <div class="topbar-left">
     <span class="topbar-title">Kanban Board</span>
-<span class="topbar-version">v1.6.1</span>
+<span class="topbar-version">v1.6.2</span>
     <input type="text" id="searchBox" class="search-box" placeholder="Search tasks... (Ctrl+K)">
   </div>
   <div class="topbar-right">
@@ -783,7 +783,7 @@ mark.search-highlight {
 <script src="assets/sql-wasm.js"></script>
 <script>
 
-const APP_VERSION = '1.0';
+const APP_VERSION = '1.6.2';
 // ========== GLOBALS ==========
 let db = null;
 let SQL = null;
@@ -2230,6 +2230,42 @@ function execCmd(command, value) {
       sel.addRange(_execCmdSavedRange);
     }
   } catch(_) {}
+
+  // Firefox workaround for insertUnorderedList / insertOrderedList:
+  // document.execCommand inserts the list but places the cursor before the <br> placeholder,
+  // so text appears to the left of the bullet point. Manually insert a <ul>/<ol> and place
+  // the selection at the end of the new <li>.
+  if (target && target.contains(document.activeElement)) {
+    let listCmd = '';
+    if (command === 'insertUnorderedList') {
+      listCmd = '<ul><li></li></ul>';
+    } else if (command === 'insertOrderedList') {
+      listCmd = '<ol><li></li></ol>';
+    }
+    if (listCmd) {
+      document.execCommand('insertHTML', false, listCmd);
+
+      // Place the cursor at the end of the last <li> so typing starts after the bullet.
+      try {
+        const list = target.querySelector('ul:last-of-type, ol:last-of-type');
+        if (list) {
+          const li = list.querySelectorAll('li').pop();
+          if (li) {
+            const range = document.createRange();
+            range.setStart(li, 0);
+            range.collapse(true);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+            target.focus({ preventScroll: true });
+          }
+        }
+      } catch(_) {}
+
+      _execCmdSavedRange = null;
+      return; // skip normal execCommand path.
+    }
+  }
 
   document.execCommand(command, false, value || null);
 
