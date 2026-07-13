@@ -182,7 +182,7 @@ body {
 .card.dragging { opacity: 0.4; transform: rotate(3deg); pointer-events: none; }
 
 .card-title { font-size: 15px; line-height: 1.5; word-break: break-word; margin-bottom: 6px; }
-.card-description { font-size: 13px; line-height: 1.5; color: var(--text-secondary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-bottom: 8px; }
+.card-description { font-size: 13px; line-height: 1.5; color: var(--text-secondary); white-space: pre-wrap; word-break: break-word; overflow-y: auto; max-height: 60px; margin-bottom: 8px; }
 
 .has-comments::after {
   content: '💬';
@@ -568,7 +568,7 @@ mark.search-highlight {
 <div class="topbar">
   <div class="topbar-left">
     <span class="topbar-title">Kanban Board</span>
-<span class="topbar-version">v1.0</span>
+<span class="topbar-version">v1.6.1</span>
     <input type="text" id="searchBox" class="search-box" placeholder="Search tasks... (Ctrl+K)">
   </div>
   <div class="topbar-right">
@@ -812,12 +812,12 @@ const DEFAULT_LABELS = [
 let LABEL_PRESETS = [...DEFAULT_LABELS];
 
 var TOOLBAR_HTML = [
-  '<button type="button" onclick="execCmd(\'bold\')" title="Bold"><b>B</b></button>',
-  '<button type="button" onclick="execCmd(\'italic\')" title="Italic"><i>I</i></button>',
-  '<button type="button" onclick="execCmd(\'underline\')" title="Underline"><u>U</u></button>',
+  '<button type="button" onclick="execCmd(\'bold\')" title="Bold (Ctrl+B)"><b>B</b></button>',
+  '<button type="button" onclick="execCmd(\'italic\')" title="Italic (Ctrl+I)"><i>I</i></button>',
+  '<button type="button" onclick="execCmd(\'underline\')" title="Underline (Ctrl+U)"><u>U</u></button>',
   '<button type="button" onclick="execCmd(\'strikeThrough\')" title="Strikethrough"><s>S</s></button>',
-  '<button type="button" onclick="execCmd(\'insertUnorderedList\')" title="Bullet list">• List</button>',
-  '<button type="button" onclick="execCmd(\'insertOrderedList\')" title="Numbered list">1. List</button>',
+  '<button type="button" onclick="execCmd(\'insertUnorderedList\')" title="Bullet list (Ctrl+O)">• List</button>',
+  '<button type="button" onclick="execCmd(\'insertOrderedList\')" title="Numbered list (Ctrl+D)">1. List</button>',
   '<button type="button" onclick="execCmd(\'formatBlock\', \'pre\')" title="Code block">&lt;/&gt;</button>',
   '<button type="button" onclick="execCmd(\'insertHTML\', \'<code>\' + window.getSelection() + \'</code>\')" title="Inline code">&lt;/&gt;</button>'
 ].join('');
@@ -2196,7 +2196,7 @@ function quickDelete(taskId) {
 }
 
 function execCmd(command, value) {
-  // Find whichever contenteditable currently has focus (description or comment editor)
+  // Find whichever contenteditable currently has focus (description or comment editor).
   let target = null;
   document.querySelectorAll('.contenteditable-editor').forEach(el => {
     if (document.activeElement === el || el.contains(document.activeElement)) {
@@ -2204,12 +2204,91 @@ function execCmd(command, value) {
     }
   });
 
+  // If we don't have a focused editor but captured one via mousedown, use that.
+  if (!target && _execCmdSavedRange) {
+    document.querySelectorAll('.contenteditable-editor').forEach(el => {
+      if (_execCmdSavedRange.startContainer === el || el.contains(_execCmdSavedRange.startContainer)) {
+        target = el;
+      }
+    });
+  }
+
+  // For keyboard shortcuts, capture range now.
+  try {
+    const sel = window.getSelection();
+    if (!(_execCmdSavedRange && target && target.contains(_execCmdSavedRange.startContainer))
+        && target && target.contains(sel.anchorNode) && sel.rangeCount > 0) {
+      _execCmdSavedRange = sel.getRangeAt(0);
+    }
+  } catch(_) {}
+
+  // Before execCommand, restore the saved range so it operates correctly.
+  try {
+    if (_execCmdSavedRange && target && target.contains(_execCmdSavedRange.startContainer)) {
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(_execCmdSavedRange);
+    }
+  } catch(_) {}
+
   document.execCommand(command, false, value || null);
 
-  // Restore focus to the editor that was active when the toolbar button was clicked
-  if (target) target.focus();
+  // After execCommand: restore user's original range so they can keep typing.
+  try {
+    const browserSel = window.getSelection();
+    let _browserPositionedRange = null;
+    if (target && target.contains(browserSel.anchorNode) && browserSel.rangeCount > 0) {
+      _browserPositionedRange = browserSel.getRangeAt(0);
+    }
+
+    // Restore user's original range.
+    if (_execCmdSavedRange && target && target.contains(_execCmdSavedRange.startContainer)) {
+      const sel = window.getSelection();
+      try { sel.removeAllRanges(); } catch(_) {}
+      sel.addRange(_execCmdSavedRange);
+    } else if (_browserPositionedRange) {
+      // execCommand positioned things; keep that.
+      const sel = window.getSelection();
+      try { sel.removeAllRanges(); } catch(_) {}
+      sel.addRange(_browserPositionedRange);
+    }
+
+    // Focus so user can keep typing.
+    if (target) target.focus({ preventScroll: true });
+  } catch(_) {}
+
+  _execCmdSavedRange = null;
 }
 
+// Capture selection before toolbar button mousedown (happens before focus leaves editor).
+document.addEventListener('mousedown', function(e) {
+  const btn = e.target.closest('.editor-toolbar button');
+  if (!btn) return;
+  try {
+    const sel = window.getSelection();
+    for (const el of document.querySelectorAll('.contenteditable-editor')) {
+      if (el.contains(sel.anchorNode)) {
+        _execCmdSavedRange = sel.getRangeAt(0);
+        break;
+      }
+    }
+  } catch(_) {}
+});
+
+// Capture selection before keyboard shortcuts fire execCmd.
+document.addEventListener('keydown', function(e) {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'b' || e.key === 'i' || e.key === 'u' || e.key === 'o' || e.key === 'd')) {
+    try {
+      const sel = window.getSelection();
+      for (const el of document.querySelectorAll('.contenteditable-editor')) {
+        if (el.contains(sel.anchorNode)) {
+          _execCmdSavedRange = sel.getRangeAt(0);
+          break;
+        }
+      }
+    } catch(_) {}
+  }
+});
 // Sanitize pasted HTML to strip <script>, event handlers, and javascript: URLs
 document.addEventListener('paste', function(e) {
   if (!document.activeElement || !document.activeElement.classList.contains('contenteditable-editor')) return;
@@ -2297,7 +2376,9 @@ function openDetail(taskId, showDeletedComments) {
     });
     _detailOrigDesc = task.description || '';
     // Use textContent, not innerHTML: description is plain text (contenteditable doesn't inject tags into .textContent).
-    document.getElementById('detailDesc').textContent = _detailOrigDesc;
+    // Use textContent, not innerHTML: description is plain text (contenteditable doesn't inject tags into .textContent).
+    // Convert \n to <br> so line breaks render correctly in HTML display.
+    document.getElementById('detailDesc').innerHTML = _detailOrigDesc.replace(/\n/g, '<br>');
     // Set label picker for detail modal
     document.getElementById('detailCardLabels').value = task.card_labels || '';
     renderLabelPicker('detailLabelPills', 'detailCardLabels', task.card_labels);
@@ -2312,11 +2393,11 @@ function openDetail(taskId, showDeletedComments) {
 function saveTaskDetails() {
   const taskId = parseInt(document.getElementById('detailTaskId').value);
   const title = document.getElementById('detailTitle').value.trim();
-  // Description is plain text (set via .textContent at line ~2105), no sanitization needed.
-  let desc = document.getElementById('detailDesc').textContent;
+  // Description preserves HTML (WYSIWYG contenteditable), sanitize before storing.
+  let desc = document.getElementById('detailDesc').innerHTML;
 
   // Strip empty tags for plain text check
-  const plainText = desc.replace(/<[^>]*>/g, '');
+  const plainText = desc.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ');
   if (!title) { showToast('Title is required.'); return; }
 
   const labels = (document.getElementById('detailCardLabels').value || '').split(',').map(s => s.trim()).filter(Boolean).join(',');
@@ -2486,7 +2567,7 @@ function loadComments(taskId, showDeleted) {
       if (c._editing) {
         bodyHtml = `
           <div class="editor-toolbar"></div>
-          <div class="form-textarea contenteditable-editor" id="editCommentText" contenteditable="true" style="min-height:60px;max-height:200px;overflow-y:auto;">${sanitizeHtml(c.body)}</div>`;
+          <div class="form-textarea contenteditable-editor comment-edit-editor" data-comment-id="${c.id}" contenteditable="true" style="min-height:60px;max-height:200px;overflow-y:auto;">${sanitizeHtml(c.body)}</div>`;
       } else {
         bodyHtml = '<div class="comment-body">' + sanitizeHtml(c.body) + '</div>';
       }
@@ -2520,7 +2601,8 @@ function renderComments(taskId, showDeleted) {
 
     // Add _editing flag based on whether there's an active edit editor in DOM
     for (const c of comments) {
-      c._editing = !!document.querySelector('#editCommentText');
+      // No edit-mode editors exist in normal path — flag is set by loadCommentsWithEditFlag.
+      c._editing = false;
     }
 
     loadComments(taskId, showDeleted);
@@ -2565,7 +2647,7 @@ function loadCommentsWithEditFlag(taskId, editId) {
       if (c._editing) {
         bodyHtml = `
           <div class="editor-toolbar"></div>
-          <div class="form-textarea contenteditable-editor" id="editCommentText" contenteditable="true" style="min-height:60px;max-height:200px;overflow-y:auto;">${sanitizeHtml(c.body)}</div>`;
+          <div class="form-textarea contenteditable-editor comment-edit-editor" data-comment-id="${c.id}" contenteditable="true" style="min-height:60px;max-height:200px;overflow-y:auto;">${sanitizeHtml(c.body)}</div>`;
       } else {
         bodyHtml = '<div class="comment-body">' + sanitizeHtml(c.body) + '</div>';
       }
@@ -2584,13 +2666,18 @@ function loadCommentsWithEditFlag(taskId, editId) {
       list.appendChild(div);
     }
 
-    const editor = document.getElementById('editCommentText');
-    if (editor) { setTimeout(() => editor.focus(), 50); }
+    // Focus the specific edit-mode editor.
+    const editEditor = document.querySelector('.comment-edit-editor[data-comment-id="' + editId + '"]');
+    if (editEditor) { setTimeout(() => editEditor.focus(), 50); }
+    
+    // Populate toolbar for the comment edit editor so formatting works.
+    populateToolbar();
   } catch (err) {}
 }
 
 function saveComment(commentId) {
-  const editor = document.getElementById('editCommentText');
+  // Find the specific editor for this comment (not the "new comment" one).
+  const editor = document.querySelector('.comment-edit-editor[data-comment-id="' + commentId + '"]') || document.getElementById('editCommentText');
   const html = editor.innerHTML.trim();
   if (!html || html === '<br>') return;
 
@@ -2869,12 +2956,23 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     toggleTheme();
   }
-  // Enter in task title input saves the task (instead of just adding a newline that does nothing here)
+  // Enter in task title input saves the task (but not inside WYSIWYG editors, which want Enter for newline).
   if (e.key === 'Enter' && !e.shiftKey) {
+    const inEditor = !!document.querySelector('.contenteditable-editor:focus');
     const titleInput = document.getElementById('taskTitleInput');
-    if (document.activeElement === titleInput) {
+    if (!inEditor && document.activeElement === titleInput) {
       e.preventDefault();
       saveTask();
+    }
+  }
+
+  // WYSIWYG formatting shortcuts (only active when a contenteditable editor has focus).
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+    const inEditor = !!document.querySelector('.contenteditable-editor:focus');
+    var map = { b: 'bold', i: 'italic', u: 'underline', o: 'insertUnorderedList', d: 'insertOrderedList' };
+    if (inEditor && map[e.key]) {
+      e.preventDefault();
+      execCmd(map[e.key][0] || map[e.key], map[e.key][1]);
     }
   }
   if (e.key === 'Escape') {
