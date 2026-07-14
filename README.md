@@ -1,4 +1,4 @@
-# Kanban Board — Local SQLite [v1.6.1]
+# Kanban Board — Local SQLite [v1.6.2]
 
 A local-only kanban board for organizing tasks across four default columns (To Do, Blocked, In Progress, Done). Every database lives in its own `.sqlite` file on your machine — no accounts, no cloud sync, no external services.
 

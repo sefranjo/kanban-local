@@ -62,10 +62,13 @@ Manual edit-and-refresh only — no build step, no package manager, no lint/type
 - **Column management** (rename, reorder, delete) is via right-click context menu.
 - **Search** queries DB first then filters in-memory, not raw DOM — debounced at 250ms, filters title + description only. Does **not** auto-clear; user must press Escape to restore the board.
 - **Enter in the task title input saves** the task instead of just adding whitespace.
+- **Column schema migration**: old `.sqlite` files have `column_id INTEGER NOT NULL`; the app migrates it via a full table rewrite (`CREATE TABLE _mig AS SELECT * FROM tasks` → DROP → CREATE with `DEFAULT NULL`). Any new DB access path should guard on this or hit SQL errors when loading legacy databases.
 
 ## Soft-delete / Recycle bin
 
-Tasks are soft-deleted (`deleted=1`) via bottom-up DFS (deleting comments first, then marking each descendant). The `parent_id` column is never modified during deletion, so recovery sets `deleted=0` and items reappear under their original parents automatically. ALTER TABLE migration runs in `initNewDB()`, `handleImport()`, and `openExistingDatabase()` via TRY/CATCH, plus `softDeleteTask()` for old databases. Both the column-deletion flow and task-delete path (`quickDelete`) use `softDeleteTask()` now.
+- **Deletion walk**: bottom-up DFS — comments first, then mark each descendant. Implemented in `cascadeSoft()`.
+- **Parent ID never touched** during deletion → recovery is simply setting `deleted=0`; items reappear under their original parents automatically.
+- **Migration runs** in four entrypoints: `initNewDB()`, `handleImport()`, `openExistingDatabase()`, and `softDeleteTask()` (for old databases).
 
 ## WYSIWYG editors / Comments
 
@@ -82,4 +85,3 @@ Comments use raw HTML in contenteditable divs; always pass user input through `s
 | `Ctrl+K` / `Cmd+K` | Focus search box |
 | `Ctrl+T` / `Cmd+T` | Toggle dark/light theme |
 | `Escape` | Close modals, context menus, cancel comment editor; clears search if focused |
-
