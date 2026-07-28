@@ -1,6 +1,6 @@
 # Kanban Board — Agent Guide
 
-Single-file app (`index.html`, ~3207 lines), zero dependencies, no build step. SQLite via sql.js WebAssembly runs in-browser; Node HTTP server serves `.wasm` with correct MIME type and provides disk persistence API endpoints. (Line count drifts as features evolve.)
+Single-file app (`index.html`, ~3123 lines), zero dependencies, no build step. SQLite via sql.js WebAssembly runs in-browser; Node HTTP server serves `.wasm` with correct MIME type and provides disk persistence API endpoints. (Line count drifts as features evolve.)
 
 ## Run commands
 
@@ -35,8 +35,9 @@ Manual edit-and-refresh only — no build step, no package manager, no lint/type
 
 ## Architecture
 
-- **Single file**: `index.html` (~3207 lines) — CSS `<style>`, inline JS, no build step or dependencies.
+- **Single file**: `index.html` (~3123 lines) — CSS `<style>`, inline JS, no build step.
 - **Database**: sql.js (SQLite WebAssembly) runs in-memory via `initSqlJs({ locateFile: file => 'assets/' + file })`. WASM binary at `assets/sql-wasm.wasm` (~650KB), JS loader at `assets/sql-wasm.js` (~50KB).
+- **WYSIWYG**: SunEditor v2.47.11 for rich-text editing. JS at `assets/suneditor.min.js` (2.5MB), base CSS at `assets/suneditor.min.css` (55KB), dark theme overrides at `assets/suneditor.min.dark.css` (3.4KB). Exposes `window.SUNEDITOR`.
 - **Persistence**: DB exported to base64 and saved either via browser File System Access API (HTTPS) or the Node server's `/api/save-db` (HTTP). Labels are stored inside each `.sqlite` file itself (`labels_prefs(key, value TEXT)` table), so different databases have independent label sets. Theme preference is persisted in a cookie; last DB path is also stored as a cookie for auto-resume on load (HTTP only — HTTPS uses FileHandles that can't be serialized).
 - **Schema**: 3 main tables + `labels_prefs` — `columns`, `tasks` (`task_type`: 'epic'/'task', `parent_id`: INTEGER, `card_labels`: TEXT, `display_name`: TEXT), `comments`. Default columns ("To Do", "Blocked", "In Progress", "Done") defined in `DEFAULT_COLUMNS`.
 - **Display name**: Optional per-task field that overrides the title on cards. Stored as `tasks.display_name` (TEXT). Auto-migrated via `ALTER TABLE` if column doesn't exist yet. If set and non-empty, displayed on cards instead of the canonical title; search still filters by title + description only.
@@ -72,7 +73,25 @@ Manual edit-and-refresh only — no build step, no package manager, no lint/type
 
 ## WYSIWYG editors / Comments
 
-Comments use raw HTML in contenteditable divs; always pass user input through `sanitizeHtml()` before rendering (strips `<script>`, event handlers, `javascript:` URLs). A global `paste` listener sanitizes pasted content. Pressing Escape on an open comment editor confirms unsaved changes.
+Three SunEditor instances managed by global variables:
+- **`descEditor`** — task description in the detail modal (initialized in `openDetail()` after `openModal()`, destroyed in `closeDetailModal()`).
+- **`commentEditor`** — new comment input (created in `toggleCommentEditor()`, destroyed on save/cancel).
+- **`commentEditEditors`** — map of per-comment SunEditor instances for inline comment editing (created in `loadComments()` / `loadCommentsWithEditFlag()`, cleaned up in `destroyCommentEditors()` called by `renderComments()`).
+
+All instances use `SUNEDITOR.create(id, config)` with a shared `EDITOR_CONFIG` object (line ~776 in `index.html`) that defines the full `buttonList` (bold, italic, underline, strike, fontColor, hiliteColor, removeFormat, font, fontSize, textStyle, lineHeight, formatBlock, paragraphStyle, blockquote, list, indent, outdent, align, table, horizontalRule, link, image, codeblock, quote, undo, redo) and `plugins` (`['image', 'table']`). Output is retrieved via `getContents()` and set via `setContents()`.
+
+Descriptions from the DB are already HTML (stored via `sanitizeHtml(desc)`); the app detects plain text by checking for `<[a-z]>` tags and only converts `\n` to `<br>` for plain text.
+
+Comments use raw HTML; always pass user input through `sanitizeHtml()` before rendering (strips `<script>`, event handlers, `javascript:` URLs). Pressing Escape on an open comment editor confirms unsaved changes.
+
+## SunEditor gotchas
+
+- **Init after `openModal()`** — SunEditor v2 cannot initialize on hidden elements. `descEditor` must be created after the detail modal is visible.
+- **Element ID without `#` prefix** — `SUNEDITOR.create('detailDesc', ...)` not `'#detailDesc'` because v2 uses `getElementById()`.
+- **Dark theme via CSS loading** — SunEditor v2 applies inline styles that CSS variables can't override. A separate `suneditor.min.dark.css` file is loaded/unloaded on theme toggle via `toggleTheme()` and on initial load via the IIFE. `initSunEditor()` syncs CSS at creation time to handle stale cookies.
+- **`getContents()` / `setContents()`** — v2 API, not `getValue()` / `setValue()`.
+- **`document.getElementById('newCommentText').focus()`** — `commentEditor.focus()` does not exist in v2.
+- **Toolbar button names** — Not all buttons from the SunEditor docs exist in the minified build. `fontName`, `code`, `codeblock`, `template`, `quote`, `fullScreen`, `preview`, `charMap`, `specialChar` are not present in v2.47.11. Use `core` property check (not `core.contains()`) to detect active element inside editor for keyboard shortcuts.
 
 ## Task types & linking
 

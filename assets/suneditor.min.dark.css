@@ -1,0 +1,93 @@
+/* SunEditor dark theme overrides - include this file when data-theme="dark" */
+.sun-editor{border-color:#4a4d54!important;background-color:#3c3f46!important;color:#e4e4e7!important}
+.sun-editor .se-wrapper{border-color:#4a4d54!important}
+.sun-editor .se-toolbar{background:#34373e!important;border-color:#4a4d54!important}
+.sun-editor .se-btn{color:#9ca3af!important}
+.sun-editor .se-btn:hover{background:rgba(255,255,255,0.08)!important;color:#e4e4e7!important}
+.sun-editor .se-btn-active{background:#0079bf!important;color:#fff!important}
+.sun-editor .se-btn-layer{color:#e4e4e7!important}
+.sun-editor .se-popup{border-color:#4a4d54!important;background:#3c3f46!important;box-shadow:0 2px 8px rgba(0,0,0,0.4)!important}
+.sun-editor .sun-editor-editable{background:#3c3f46!important;color:#e4e4e7!important;border-color:#4a4d54!important}
+.sun-editor .sun-editor-editable pre{background:#34373e!important}
+.sun-editor .sun-editor-editable code{background:#34373e!important}
+.sun-editor .se-status-bar{background:#34373e!important;color:#9ca3af!important}
+.sun-editor .se-resize-bar{background:#9ca3af!important}
+.sun-editor .se-link{background:#34373e!important;color:#e4e4e7!important}
+.sun-editor .se-link a{color:#0079bf!important}
+.sun-editor .se-modal{background:#3c3f46!important;color:#e4e4e7!important}
+.sun-editor .se-modal-header{background:#34373e!important}
+.sun-editor .se-modal-body{background:#3c3f46!important}
+.sun-editor .se-modal-footer{background:#34373e!important}
+.sun-editor .se-modal-form label{color:#9ca3af!important}
+.sun-editor .se-modal-form input,.sun-editor .se-modal-form select,.sun-editor .se-modal-form textarea{background:#3c3f46!important;color:#e4e4e7!important;border-color:#4a4d54!important}
+.sun-editor .se-modal-btn-primary{background:#0079bf!important;color:#fff!important}
+.sun-editor .se-modal-btn-danger{background:#eb5a46!important;color:#fff!important}
+.sun-editor .se-modal-btn-cancel{background:#5e6c84!important;color:#fff!important}
+.sun-editor .se-dropdown{background:#3c3f46!important;border-color:#4a4d54!important}
+.sun-editor .se-dropdown .se-btn{color:#9ca3af!important}
+.sun-editor .se-dropdown .se-btn:hover{background:rgba(255,255,255,0.08)!important;color:#e4e4e7!important}
+.sun-editor .se-dropdown .se-btn-active{background:#0079bf!important;color:#fff!important}
+.sun-editor .se-icon{fill:#9ca3af!important}
+.sun-editor .se-icon:hover{fill:#e4e4e7!important}
+.sun-editor .se-icon-active{fill:#0079bf!important}
+.sun-editor .se-colorpicker{background:#3c3f46!important}
+.sun-editor .se-colorpicker .se-colorpicker-item{color:#e4e4e7!important}
+.sun-editor .se-colorpicker .se-colorpicker-item:hover{background:rgba(255,255,255,0.08)!important}
+.sun-editor .se-colorpicker .se-colorpicker-item-active{background:#0079bf!important;color:#fff!important}
+.sun-editor .se-colorpicker .se-colorpicker-input{background:#3c3f46!important;color:#e4e4e7!important;border-color:#4a4d54!important}
+.sun-editor .se-colorpicker .se-colorpicker-input:focus{border-color:#0079bf!important}
+.sun-editor .se-colorpicker .se-colorpicker-swatch{border-color:#4a4d54!important}
+.sun-editor .se-colorpicker .se-colorpicker-swatch-active{border-color:#0079bf!important}
+.sun-editor .se-colorpicker .se-colorpicker-swatch:hover{border-color:#9ca3af!important}
+.sun-editor .se-colorpicker .se-colorpicker-swatch-current{border-color:#0079bf!important}
+.sun-editor .se-colorpicker .se-colorpicker-swatch-current::after{background:#0079bf!important}
+.sun-editor .se-tooltip{background:#34373e!important;color:#e4e4e7!important;border-color:#4a4d54!important}
+.sun-editor .se-image-popup{background:#3c3f46!important;color:#e4e4e7!important}
+.sun-editor .se-image-popup .se-popup-input{background:#3c3f46!important;color:#e4e4e7!important;border-color:#4a4d54!important}
+.sun-editor .se-image-popup .se-popup-btn{background:#5e6c84!important;color:#fff!important}
+.sun-editor .se-image-popup .se-popup-btn-primary{background:#0079bf!important;color:#fff!important}
+.sun-editor .se-table-popup{background:#3c3f46!important;color:#e4e4e7!important}
+.sun-editor .se-table-popup .se-table-grid{background:#3c3f46!important}
+.sun-editor .se-table-popup .se-table-grid .se-table-grid-cell{background:#3c3f46!important;border-color:#4a4d54!important}
+.sun-editor .se-table-popup .se-table-grid .se-table-grid-cell-active{background:#0079bf!important}
+.sun-editor .se-table-popup .se-table-input{background:#3c3f46!important;color:#e4e4e7!important;border-color:#4a4d54!important}
+.sun-editor .se-modal-backdrop{background:rgba(0,0,0,0.5)!important}
+.sun-editor .se-font-name-list{background:#3c3f46!important;color:#e4e4e7!important}
+.sun-editor .se-font-name-list .se-font-name-item{color:#e4e4e7!important}
+.sun-editor .se-font-name-list .se-font-name-item:hover{background:rgba(255,255,255,0.08)!important}
+.sun-editor .se-font-size-list{background:#3c3f46!important;color:#e4e4e7!important}
+.sun-editor .se-font-size-list .se-font-size-item{color:#e4e4e7!important}
+.sun-editor .se-font-size-list .se-font-size-item:hover{background:rgba(255,255,255,0.08)!important}
+.sun-editor .se-font-size-input{background:#3c3f46!important;color:#e4e4e7!important;border-color:#4a4d54!important}
+.sun-editor .se-text-style-list{background:#3c3f46!important;color:#e4e4e7!important}
+.sun-editor .se-text-style-list .se-text-style-item{color:#e4e4e7!important}
+.sun-editor .se-text-style-list .se-text-style-item:hover{background:rgba(255,255,255,0.08)!important}
+.sun-editor .se-line-height-list{background:#3c3f46!important;color:#e4e4e7!important}
+.sun-editor .se-line-height-list .se-line-height-item{color:#e4e4e7!important}
+.sun-editor .se-line-height-list .se-line-height-item:hover{background:rgba(255,255,255,0.08)!important}
+.sun-editor .se-format-block-list{background:#3c3f46!important;color:#e4e4e7!important}
+.sun-editor .se-format-block-list .se-format-block-item{color:#e4e4e7!important}
+.sun-editor .se-format-block-list .se-format-block-item:hover{background:rgba(255,255,255,0.08)!important}
+.sun-editor .se-paragraph-style-list{background:#3c3f46!important;color:#e4e4e7!important}
+.sun-editor .se-paragraph-style-list .se-paragraph-style-item{color:#e4e4e7!important}
+.sun-editor .se-paragraph-style-list .se-paragraph-style-item:hover{background:rgba(255,255,255,0.08)!important}
+.sun-editor .se-char-map{background:#3c3f46!important;color:#e4e4e7!important}
+.sun-editor .se-char-map .se-char-map-item{color:#e4e4e7!important}
+.sun-editor .se-char-map .se-char-map-item:hover{background:rgba(255,255,255,0.08)!important}
+.sun-editor .se-special-char{background:#3c3f46!important;color:#e4e4e7!important}
+.sun-editor .se-special-char .se-special-char-item{color:#e4e4e7!important}
+.sun-editor .se-special-char .se-special-char-item:hover{background:rgba(255,255,255,0.08)!important}
+.sun-editor .se-template-list{background:#3c3f46!important;color:#e4e4e7!important}
+.sun-editor .se-template-list .se-template-item{color:#e4e4e7!important}
+.sun-editor .se-template-list .se-template-item:hover{background:rgba(255,255,255,0.08)!important}
+.sun-editor .se-preview{background:#3c3f46!important;color:#e4e4e7!important}
+.sun-editor .se-preview iframe{background:#3c3f46!important}
+.sun-editor .sun-editor-editable table{border-collapse:collapse!important}
+.sun-editor .sun-editor-editable table td,.sun-editor .sun-editor-editable table th{border:1px solid #4a4d54!important;padding:6px 8px!important}
+.sun-editor .sun-editor-editable table th{background:#34373e!important;font-weight:600!important}
+.sun-editor .sun-editor-editable blockquote{border-left:3px solid #0079bf!important;padding-left:12px!important;color:#9ca3af!important}
+.sun-editor .sun-editor-editable pre{background:#34373e!important;padding:10px 12px!important;border-radius:4px!important}
+.sun-editor .sun-editor-editable code{background:#34373e!important;padding:2px 5px!important;border-radius:3px!important}
+.sun-editor .sun-editor-editable hr{border-color:#4a4d54!important}
+.sun-editor .se-wrapper .se-btn-layer .se-btn{color:#e4e4e7!important}
+.sun-editor .se-wrapper .se-btn-layer .se-btn:hover{background:rgba(255,255,255,0.08)!important}

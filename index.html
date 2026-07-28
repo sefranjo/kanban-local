@@ -314,69 +314,30 @@ body {
 
 .form-textarea { resize: vertical; min-height: 80px; }
 
-.editor-toolbar {
-  display: flex;
-  gap: 2px;
-  padding: 6px 8px;
-  border: 1px solid var(--border-color);
-  border-bottom: none;
-  border-radius: var(--radius) var(--radius) 0 0;
-  background: var(--bg-column);
-}
-
-.editor-toolbar button {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 13px;
-  padding: 4px 8px;
-  border-radius: 4px;
-  color: var(--text-secondary);
-  transition: background 0.2s, color 0.2s;
-}
-
-.editor-toolbar button:hover {
-  background: rgba(0,0,0,0.08);
-  color: var(--text-primary);
-}
-
-.contenteditable-editor {
-  border-radius: 0 0 var(--radius) var(--radius) !important;
-  overflow-y: auto;
-  min-height: 120px;
-  max-height: 300px;
-  white-space: pre-wrap;
-}
-
-.contenteditable-editor:empty::before {
-  content: attr(data-placeholder);
-  color: var(--text-secondary);
-  pointer-events: none;
-}
-
-.contenteditable-editor pre {
-  background: var(--bg-column);
-  padding: 8px 10px;
-  border-radius: 4px;
-  font-family: 'Courier New', Courier, monospace;
-  font-size: 13px;
-  margin: 4px 0;
-}
-
-.contenteditable-editor code {
-  background: var(--bg-column);
-  padding: 2px 5px;
-  border-radius: 3px;
-  font-family: 'Courier New', Courier, monospace;
-  font-size: 13px;
-}
-
-.contenteditable-editor ul, .contenteditable-editor ol {
-  margin: 4px 0;
-  padding-left: 24px;
-}
-
-.contenteditable-editor a { color: var(--accent); }
+/* SunEditor theme overrides */
+.se-wrapper { border-color: var(--border-color) !important; }
+.se-wrapper .se-toolbar { border-color: var(--border-color) !important; background: var(--bg-column) !important; }
+.se-wrapper .se-btn { color: var(--text-secondary) !important; }
+.se-wrapper .se-btn:hover { background: rgba(0,0,0,0.08) !important; color: var(--text-primary) !important; }
+.se-wrapper .se-btn-active { background: var(--accent) !important; color: #fff !important; }
+.se-wrapper .se-btn-layer { color: var(--text-primary) !important; }
+.se-wrapper .se-popup { border-color: var(--border-color) !important; }
+.sun-editor-editable { overflow-y: auto !important; min-height: 120px !important; max-height: 300px !important; }
+.sun-editor-editable:empty::before { content: attr(data-placeholder) !important; color: var(--text-secondary) !important; pointer-events: none !important; }
+.sun-editor-editable pre { background: var(--bg-column) !important; padding: 8px 10px !important; border-radius: 4px !important; font-family: 'Courier New', monospace !important; font-size: 13px !important; margin: 4px 0 !important; }
+.sun-editor-editable code { background: var(--bg-column) !important; padding: 2px 5px !important; border-radius: 3px !important; font-family: 'Courier New', monospace !important; font-size: 13px !important; }
+.sun-editor-editable ul, .sun-editor-editable ol { margin: 4px 0 !important; padding-left: 24px !important; }
+.sun-editor-editable a { color: var(--accent) !important; }
+.sun-editor-editable table { border-collapse: collapse !important; width: 100% !important; margin: 8px 0 !important; }
+.sun-editor-editable table td,
+.sun-editor-editable table th { border: 1px solid var(--border-color) !important; padding: 6px 8px !important; }
+.sun-editor-editable table th { background: var(--bg-column) !important; font-weight: 600 !important; }
+.sun-editor-editable blockquote { border-left: 3px solid var(--accent) !important; padding-left: 12px !important; color: var(--text-secondary) !important; }
+.sun-editor-editable hr { border-color: var(--border-color) !important; margin: 12px 0 !important; }
+.sun-editor-editable pre { background: var(--bg-column) !important; padding: 10px 12px !important; border-radius: 4px !important; }
+.sun-editor-editable code { background: var(--bg-column) !important; padding: 2px 5px !important; border-radius: 3px !important; }
+.se-wrapper .se-status-bar { display: none !important; }
+.se-wrapper .se-resize-bar { display: none !important; }
 
 .modal-footer {
   padding: 16px 24px;
@@ -732,7 +693,6 @@ mark.search-highlight {
       </div>
       <div class="form-group">
         <label class="form-label">Description</label>
-        <div class="editor-toolbar"></div>
         <div id="detailDesc" class="form-textarea contenteditable-editor" contenteditable="true"></div>
       </div>
       <div class="modal-footer" style="padding:12px 0;">
@@ -746,7 +706,6 @@ mark.search-highlight {
           <button class="btn btn-primary" id="addCommentBtn" onclick="toggleCommentEditor()" style="padding:6px 12px;font-size:12px;">+ Add Comment</button>
         </div>
         <div id="commentInputArea" style="display:none;margin-bottom:14px;">
-          <div class="editor-toolbar"></div>
           <div id="newCommentText" class="form-textarea contenteditable-editor" contenteditable="true" data-placeholder="Write a comment..."></div>
           <div style="display:flex;gap:8px;margin-top:8px;">
             <button class="btn btn-primary" onclick="saveNewComment()" style="padding:6px 12px;font-size:12px;">Accept</button>
@@ -781,6 +740,8 @@ mark.search-highlight {
 <div class="toast" id="toast"></div>
 
 <script src="assets/sql-wasm.js"></script>
+<link rel="stylesheet" href="assets/suneditor.min.css">
+<script src="assets/suneditor.min.js"></script>
 <script>
 
 const APP_VERSION = '1.6.2';
@@ -811,21 +772,61 @@ const DEFAULT_LABELS = [
 
 let LABEL_PRESETS = [...DEFAULT_LABELS];
 
-var TOOLBAR_HTML = [
-  '<button type="button" onclick="execCmd(\'bold\')" title="Bold (Ctrl+B)"><b>B</b></button>',
-  '<button type="button" onclick="execCmd(\'italic\')" title="Italic (Ctrl+I)"><i>I</i></button>',
-  '<button type="button" onclick="execCmd(\'underline\')" title="Underline (Ctrl+U)"><u>U</u></button>',
-  '<button type="button" onclick="execCmd(\'strikeThrough\')" title="Strikethrough"><s>S</s></button>',
-  '<button type="button" onclick="execCmd(\'insertUnorderedList\')" title="Bullet list (Ctrl+O)">• List</button>',
-  '<button type="button" onclick="execCmd(\'insertOrderedList\')" title="Numbered list (Ctrl+D)">1. List</button>',
-  '<button type="button" onclick="execCmd(\'formatBlock\', \'pre\')" title="Code block">&lt;/&gt;</button>',
-  '<button type="button" onclick="execCmd(\'insertHTML\', \'<code>\' + window.getSelection() + \'</code>\')" title="Inline code">&lt;/&gt;</button>'
-].join('');
+// Shared editor configuration used by all SunEditor instances.
+const EDITOR_CONFIG = {
+  buttonList: [
+    ['bold', 'italic', 'underline', 'strike'],
+    ['fontColor', 'hiliteColor'],
+    ['removeFormat'],
+    ['font', 'fontSize', 'textStyle', 'lineHeight'],
+    ['formatBlock'],
+    ['paragraphStyle', 'blockquote'],
+    ['list', 'indent', 'outdent'],
+    ['align'],
+    ['table', 'horizontalRule'],
+    ['link', 'image'],
 
-function populateToolbar() {
-  document.querySelectorAll('.editor-toolbar').forEach(function(tb) {
-    if (tb.innerHTML === '') tb.innerHTML = TOOLBAR_HTML;
-  });
+
+
+
+
+    ['undo', 'redo']
+  ],
+  plugins: ['image', 'table'],
+  placeholder: '',
+  resizingPane: false,
+  height: 'auto',
+  style: { fontFamily: 'inherit', fontSize: 'inherit' }
+};
+
+// SunEditor instances
+let descEditor = null;
+let commentEditor = null;
+
+function initSunEditor() {
+  // Sync SunEditor CSS to current theme (cookie may be stale).
+  if (document.documentElement.getAttribute('data-theme') !== 'dark') {
+    const link = document.getElementById('suneditor-dark-theme');
+    if (link) link.remove();
+  }
+  descEditor = SUNEDITOR.create('detailDesc', { ...EDITOR_CONFIG, placeholder: 'Write a description...' });
+}
+
+function destroySunEditor() {
+  if (descEditor) { descEditor.destroy(); descEditor = null; }
+}
+
+// ========== INLINE COMMENT EDITING (SunEditor instances) ==========
+let commentEditEditors = {};
+
+function destroyCommentEditors() {
+  for (const id in commentEditEditors) {
+    if (commentEditEditors[id]) {
+      commentEditEditors[id].destroy();
+      commentEditEditors[id] = null;
+    }
+  }
+  commentEditEditors = {};
 }
 
 // ========== LABEL PERSISTENCE (per-database, stored in SQLite) ==========
@@ -2195,154 +2196,9 @@ function quickDelete(taskId) {
   loadBinContent(); // keep recycle bin fresh without requiring a manual open
 }
 
-function execCmd(command, value) {
-  // Find whichever contenteditable currently has focus (description or comment editor).
-  let target = null;
-  document.querySelectorAll('.contenteditable-editor').forEach(el => {
-    if (document.activeElement === el || el.contains(document.activeElement)) {
-      target = el;
-    }
-  });
 
-  // If we don't have a focused editor but captured one via mousedown, use that.
-  if (!target && _execCmdSavedRange) {
-    document.querySelectorAll('.contenteditable-editor').forEach(el => {
-      if (_execCmdSavedRange.startContainer === el || el.contains(_execCmdSavedRange.startContainer)) {
-        target = el;
-      }
-    });
-  }
 
-  // For keyboard shortcuts, capture range now.
-  try {
-    const sel = window.getSelection();
-    if (!(_execCmdSavedRange && target && target.contains(_execCmdSavedRange.startContainer))
-        && target && target.contains(sel.anchorNode) && sel.rangeCount > 0) {
-      _execCmdSavedRange = sel.getRangeAt(0);
-    }
-  } catch(_) {}
 
-  // Before execCommand, restore the saved range so it operates correctly.
-  try {
-    if (_execCmdSavedRange && target && target.contains(_execCmdSavedRange.startContainer)) {
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(_execCmdSavedRange);
-    }
-  } catch(_) {}
-
-  // Firefox workaround for insertUnorderedList / insertOrderedList:
-  // document.execCommand inserts the list but places the cursor before the <br> placeholder,
-  // so text appears to the left of the bullet point. Manually insert a <ul>/<ol> and place
-  // the selection at the end of the new <li>.
-  if (target && target.contains(document.activeElement)) {
-    let listCmd = '';
-    if (command === 'insertUnorderedList') {
-      listCmd = '<ul><li></li></ul>';
-    } else if (command === 'insertOrderedList') {
-      listCmd = '<ol><li></li></ol>';
-    }
-    if (listCmd) {
-      document.execCommand('insertHTML', false, listCmd);
-
-      // Place the cursor at the end of the last <li> so typing starts after the bullet.
-      try {
-        const list = target.querySelector('ul:last-of-type, ol:last-of-type');
-        if (list) {
-          const li = list.querySelectorAll('li').pop();
-          if (li) {
-            const range = document.createRange();
-            range.setStart(li, 0);
-            range.collapse(true);
-            const sel = window.getSelection();
-            sel.removeAllRanges();
-            sel.addRange(range);
-            target.focus({ preventScroll: true });
-          }
-        }
-      } catch(_) {}
-
-      _execCmdSavedRange = null;
-      return; // skip normal execCommand path.
-    }
-  }
-
-  document.execCommand(command, false, value || null);
-
-  // After execCommand: restore user's original range so they can keep typing.
-  try {
-    const browserSel = window.getSelection();
-    let _browserPositionedRange = null;
-    if (target && target.contains(browserSel.anchorNode) && browserSel.rangeCount > 0) {
-      _browserPositionedRange = browserSel.getRangeAt(0);
-    }
-
-    // Restore user's original range.
-    if (_execCmdSavedRange && target && target.contains(_execCmdSavedRange.startContainer)) {
-      const sel = window.getSelection();
-      try { sel.removeAllRanges(); } catch(_) {}
-      sel.addRange(_execCmdSavedRange);
-    } else if (_browserPositionedRange) {
-      // execCommand positioned things; keep that.
-      const sel = window.getSelection();
-      try { sel.removeAllRanges(); } catch(_) {}
-      sel.addRange(_browserPositionedRange);
-    }
-
-    // Focus so user can keep typing.
-    if (target) target.focus({ preventScroll: true });
-  } catch(_) {}
-
-  _execCmdSavedRange = null;
-}
-
-// Capture selection before toolbar button mousedown (happens before focus leaves editor).
-document.addEventListener('mousedown', function(e) {
-  const btn = e.target.closest('.editor-toolbar button');
-  if (!btn) return;
-  try {
-    const sel = window.getSelection();
-    for (const el of document.querySelectorAll('.contenteditable-editor')) {
-      if (el.contains(sel.anchorNode)) {
-        _execCmdSavedRange = sel.getRangeAt(0);
-        break;
-      }
-    }
-  } catch(_) {}
-});
-
-// Capture selection before keyboard shortcuts fire execCmd.
-document.addEventListener('keydown', function(e) {
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'b' || e.key === 'i' || e.key === 'u' || e.key === 'o' || e.key === 'd')) {
-    try {
-      const sel = window.getSelection();
-      for (const el of document.querySelectorAll('.contenteditable-editor')) {
-        if (el.contains(sel.anchorNode)) {
-          _execCmdSavedRange = sel.getRangeAt(0);
-          break;
-        }
-      }
-    } catch(_) {}
-  }
-});
-// Sanitize pasted HTML to strip <script>, event handlers, and javascript: URLs
-document.addEventListener('paste', function(e) {
-  if (!document.activeElement || !document.activeElement.classList.contains('contenteditable-editor')) return;
-  let raw = (e.clipboardData || window.clipboardData).getData('text/html');
-  if (!raw) {
-    // Fallback to plain text when no HTML is available (e.g., pasting a plain URL)
-    raw = (e.clipboardData || window.clipboardData).getData('text/plain');
-    if (raw) {
-      e.preventDefault();
-      document.execCommand('insertText', false, raw);
-      return;
-    }
-    return;
-  }
-  e.preventDefault();
-  const clean = sanitizeHtml(raw);
-  document.execCommand('insertHTML', false, clean);
-});
 
 // ========== COMMENT WYSIWYG EDITOR ==========
 let commentEditorOpen = false;
@@ -2356,34 +2212,38 @@ function toggleCommentEditor() {
   commentEditorOpen = true;
   area.style.display = 'block';
   btn.style.display = 'none';
+  if (!commentEditor) {
+    commentEditor = SUNEDITOR.create('newCommentText', { ...EDITOR_CONFIG, placeholder: 'Write a comment...' });
+  }
+  commentEditor.setContents('');
   setTimeout(() => document.getElementById('newCommentText').focus(), 50);
 }
 
 function saveNewComment() {
-  const editor = document.getElementById('newCommentText');
-  const html = editor.innerHTML.trim();
+  const html = commentEditor.getContents().trim();
   if (!html || html === '<br>') { showToast('Nothing to save.'); return; }
   
   const taskId = parseInt(document.getElementById('detailTaskId').value);
   db.run("INSERT INTO comments (task_id, body) VALUES (?, ?)", [taskId, html]);
   autoSave();
   commentEditorOpen = false;
+  commentEditor.destroy();
+  commentEditor = null;
   document.getElementById('commentInputArea').style.display = 'none';
   document.getElementById('addCommentBtn').style.display = '';
-  editor.innerHTML = '';
   renderComments(taskId);
   showToast('Comment added!');
 }
 
 function cancelCommentEditor() {
-  const editor = document.getElementById('newCommentText');
-  if (commentEditorOpen && editor.innerHTML.trim() && editor.innerHTML.trim() !== '<br>') {
+  if (commentEditorOpen && commentEditor.getContents().trim() && commentEditor.getContents().trim() !== '<br>') {
     if (!confirm('Discard unsaved comment?')) return;
   }
   commentEditorOpen = false;
+  commentEditor.destroy();
+  commentEditor = null;
   document.getElementById('commentInputArea').style.display = 'none';
   document.getElementById('addCommentBtn').style.display = '';
-  editor.innerHTML = '';
 }
 
 // ========== TASK DETAIL (with comments) ==========
@@ -2411,10 +2271,13 @@ function openDetail(taskId, showDeletedComments) {
       document.getElementById('detailTaskTypeSelect').appendChild(opt);
     });
     _detailOrigDesc = task.description || '';
-    // Use textContent, not innerHTML: description is plain text (contenteditable doesn't inject tags into .textContent).
-    // Use textContent, not innerHTML: description is plain text (contenteditable doesn't inject tags into .textContent).
-    // Convert \n to <br> so line breaks render correctly in HTML display.
-    document.getElementById('detailDesc').innerHTML = _detailOrigDesc.replace(/\n/g, '<br>');
+    destroySunEditor();
+    // Bug fix: description from DB is already HTML (stored via sanitizeHtml(desc)).
+    // Only convert \n to <br> if the description is plain text (no HTML tags).
+    let descContent = _detailOrigDesc;
+    if (!/<[a-z][\s\S]*>/i.test(descContent)) {
+      descContent = descContent.replace(/\n/g, '<br>');
+    }
     // Set label picker for detail modal
     document.getElementById('detailCardLabels').value = task.card_labels || '';
     renderLabelPicker('detailLabelPills', 'detailCardLabels', task.card_labels);
@@ -2423,14 +2286,17 @@ function openDetail(taskId, showDeletedComments) {
     renderLinkedTasks(task);
 
     openModal('detailModal');
+    // Initialize SunEditor after modal is visible (v2 can't init hidden elements)
+    initSunEditor();
+    descEditor.setContents(descContent);
   } catch (err) { console.error(err); }
 }
 
 function saveTaskDetails() {
   const taskId = parseInt(document.getElementById('detailTaskId').value);
   const title = document.getElementById('detailTitle').value.trim();
-  // Description preserves HTML (WYSIWYG contenteditable), sanitize before storing.
-  let desc = document.getElementById('detailDesc').innerHTML;
+  // Description preserves HTML (SunEditor output), sanitize before storing.
+  let desc = descEditor ? descEditor.getContents() : document.getElementById('detailDesc').innerHTML;
 
   // Strip empty tags for plain text check
   const plainText = desc.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ');
@@ -2601,9 +2467,7 @@ function loadComments(taskId, showDeleted) {
 
       let bodyHtml = '';
       if (c._editing) {
-        bodyHtml = `
-          <div class="editor-toolbar"></div>
-          <div class="form-textarea contenteditable-editor comment-edit-editor" data-comment-id="${c.id}" contenteditable="true" style="min-height:60px;max-height:200px;overflow-y:auto;">${sanitizeHtml(c.body)}</div>`;
+        bodyHtml = `<div class="form-textarea contenteditable-editor comment-edit-editor" id="comment-edit-editor-${c.id}" data-comment-id="${c.id}" contenteditable="true" style="min-height:60px;max-height:200px;overflow-y:auto;">${sanitizeHtml(c.body)}</div>`;
       } else {
         bodyHtml = '<div class="comment-body">' + sanitizeHtml(c.body) + '</div>';
       }
@@ -2621,12 +2485,18 @@ function loadComments(taskId, showDeleted) {
 
       list.appendChild(div);
     }
+
+    // Initialize SunEditor for the editing comment
+    const editingComment = comments.find(c => c._editing);
+    if (editingComment) {
+      commentEditEditors[editingComment.id] = SUNEDITOR.create('comment-edit-editor-' + editingComment.id, { ...EDITOR_CONFIG, placeholder: 'Write a comment...' });
+      commentEditEditors[editingComment.id].setContents(sanitizeHtml(editingComment.body));
+    }
   } catch (err) { console.error(err); }
-  // Populate toolbar in the newly rendered comment edit view
-  populateToolbar();
 }
 
 function renderComments(taskId, showDeleted) {
+  destroyCommentEditors();
   try {
     const result = db.exec("SELECT * FROM comments WHERE task_id = ?" + (showDeleted ? '' : ' AND deleted = 0') + " ORDER BY created_at ASC", [taskId]);
     if (result.length === 0) {
@@ -2681,9 +2551,7 @@ function loadCommentsWithEditFlag(taskId, editId) {
 
       let bodyHtml;
       if (c._editing) {
-        bodyHtml = `
-          <div class="editor-toolbar"></div>
-          <div class="form-textarea contenteditable-editor comment-edit-editor" data-comment-id="${c.id}" contenteditable="true" style="min-height:60px;max-height:200px;overflow-y:auto;">${sanitizeHtml(c.body)}</div>`;
+        bodyHtml = `<div class="form-textarea contenteditable-editor comment-edit-editor" id="comment-edit-editor-${c.id}" data-comment-id="${c.id}" contenteditable="true" style="min-height:60px;max-height:200px;overflow-y:auto;">${sanitizeHtml(c.body)}</div>`;
       } else {
         bodyHtml = '<div class="comment-body">' + sanitizeHtml(c.body) + '</div>';
       }
@@ -2702,19 +2570,16 @@ function loadCommentsWithEditFlag(taskId, editId) {
       list.appendChild(div);
     }
 
-    // Focus the specific edit-mode editor.
-    const editEditor = document.querySelector('.comment-edit-editor[data-comment-id="' + editId + '"]');
-    if (editEditor) { setTimeout(() => editEditor.focus(), 50); }
-    
-    // Populate toolbar for the comment edit editor so formatting works.
-    populateToolbar();
-  } catch (err) {}
+    // Initialize SunEditor for the editing comment
+    commentEditEditors[editId] = SUNEDITOR.create('comment-edit-editor-' + editId, { ...EDITOR_CONFIG, placeholder: 'Write a comment...' });
+    commentEditEditors[editId].setContents(sanitizeHtml(comments.find(c => parseInt(c.id) === editId)?.body || ''));
+  } catch (err) { console.error(err); }
 }
 
 function saveComment(commentId) {
-  // Find the specific editor for this comment (not the "new comment" one).
-  const editor = document.querySelector('.comment-edit-editor[data-comment-id="' + commentId + '"]') || document.getElementById('editCommentText');
-  const html = editor.innerHTML.trim();
+  const editor = commentEditEditors[commentId];
+  if (!editor) return;
+  const html = editor.getContents().trim();
   if (!html || html === '<br>') return;
 
   db.run("UPDATE comments SET body = ? WHERE id = ?", [sanitizeHtml(html), parseInt(commentId)]);
@@ -2888,9 +2753,11 @@ function closeTaskModal() {
 function closeDetailModal() {
   if (savingDetails) return;
   const detailTitle = document.getElementById('detailTitle');
-  const detailDesc = document.getElementById('detailDesc');
-  const hasUnsaved = detailTitle.value.trim() !== _detailOrigTitle || detailDesc.textContent.trim() !== _detailOrigDesc;
+  const descValue = descEditor ? descEditor.getContents() : document.getElementById('detailDesc').textContent;
+  const hasUnsaved = detailTitle.value.trim() !== _detailOrigTitle || descValue.trim() !== _detailOrigDesc;
   if (hasUnsaved && !confirm('Discard unsaved changes?')) return;
+  destroySunEditor();
+  commentEditorOpen = false;
   closeModal('detailModal');
 }
 
@@ -2932,19 +2799,42 @@ function toggleTheme() {
   html.setAttribute('data-theme', next);
   document.getElementById('themeToggle').textContent = next === 'dark' ? '☀️' : '🌙';
   setCookie('kanban_theme', next);
+  // Load/unload SunEditor dark theme
+  const link = document.getElementById('suneditor-dark-theme');
+  if (next === 'dark') {
+    if (!link) {
+      const el = document.createElement('link');
+      el.id = 'suneditor-dark-theme';
+      el.rel = 'stylesheet';
+      el.href = 'assets/suneditor.min.dark.css';
+      document.head.appendChild(el);
+    }
+  } else {
+    if (link) link.remove();
+  }
 }
 
 // Apply stored theme or system preference on load.
-(function() {
+document.addEventListener('DOMContentLoaded', function() {
   var saved = getCookie('kanban_theme');
+  var theme = null;
   if (saved) {
-    document.documentElement.setAttribute('data-theme', saved);
-    document.getElementById('themeToggle').textContent = saved === 'dark' ? '☀️' : '🌙';
+    theme = saved;
   } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-    document.documentElement.setAttribute('data-theme', 'dark');
-    document.getElementById('themeToggle').textContent = '☀️';
+    theme = 'dark';
   }
-})();
+  if (theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    var toggle = document.getElementById('themeToggle');
+    if (toggle) toggle.textContent = theme === 'dark' ? '☀️' : '🌙';
+    // Load SunEditor dark theme
+    var link = document.createElement('link');
+    link.id = 'suneditor-dark-theme';
+    link.rel = 'stylesheet';
+    link.href = 'assets/suneditor.min.dark.css';
+    document.head.appendChild(link);
+  }
+});
 
 // ========== TOAST ==========
 function showToast(msg) {
@@ -2961,8 +2851,6 @@ document.addEventListener('DOMContentLoaded', () => {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => renderBoard(), 250);
   });
-  // Populate all editor toolbars from the shared constant
-  populateToolbar();
 
   // Attempt to resume last DB (HTTP only — HTTPS uses FileHandles that can't be serialized).
   // Same protocol guard: don't trust `typeof` checks alone, Chrome exposes FSA on HTTP.
@@ -2992,23 +2880,14 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     toggleTheme();
   }
-  // Enter in task title input saves the task (but not inside WYSIWYG editors, which want Enter for newline).
+  // Enter in task title input saves the task (but not inside WYSIWYG editors).
   if (e.key === 'Enter' && !e.shiftKey) {
-    const inEditor = !!document.querySelector('.contenteditable-editor:focus');
+    const inEditor = (descEditor?.core && document.activeElement.closest('.se-wrapper, .sun-editor-editable')) ||
+                     (commentEditor?.core && document.activeElement.closest('.se-wrapper, .sun-editor-editable'));
     const titleInput = document.getElementById('taskTitleInput');
     if (!inEditor && document.activeElement === titleInput) {
       e.preventDefault();
       saveTask();
-    }
-  }
-
-  // WYSIWYG formatting shortcuts (only active when a contenteditable editor has focus).
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
-    const inEditor = !!document.querySelector('.contenteditable-editor:focus');
-    var map = { b: 'bold', i: 'italic', u: 'underline', o: 'insertUnorderedList', d: 'insertOrderedList' };
-    if (inEditor && map[e.key]) {
-      e.preventDefault();
-      execCmd(map[e.key][0] || map[e.key], map[e.key][1]);
     }
   }
   if (e.key === 'Escape') {

@@ -1,4 +1,4 @@
-# Kanban Board — Local SQLite [v1.6.2]
+# Kanban Board — Local SQLite [v1.8.0]
 
 A local-only kanban board for organizing tasks across four default columns (To Do, Blocked, In Progress, Done). Every database lives in its own `.sqlite` file on your machine — no accounts, no cloud sync, no external services.
 
@@ -7,7 +7,7 @@ A local-only kanban board for organizing tasks across four default columns (To D
 - **Task hierarchy** — Create Epics (📁 with child count) or regular Tasks. Link any task as parent/child of another; circular references are prevented automatically.
 - **Drag-and-drop** — Reorder cards within a column or move them between columns using HTML5 native drag & drop (fractional sort order for smooth gaps).
 - **Display names** — Optional per-task alias that overrides the title on cards while search still matches the canonical title and description.
-- **Comments** — Rich-text WYSIWYG editor with inline toolbar (bold, italic, strikethrough, lists, code blocks) sanitized against `<script>` tags, event handlers, and `javascript:` URLs. Press `Esc` to cancel an open comment editor.
+- **Comments** — Rich-text WYSIWYG editor powered by SunEditor (bold, italic, underline, strikethrough, font color, highlight, remove format, font/size selectors, block formatting, lists, indent/outdent, align, tables, horizontal rules, links, images, inline/code blocks, undo/redo) with input sanitized against `<script>` tags, event handlers, and `javascript:` URLs. Press `Esc` to cancel an open comment editor.
 - **Label presets** — Color-coded badges on cards. Customize colors, display aliases per-database via the "Manage Labels" button in the top bar. Different databases have independent label sets.
 - **Search & theme** — Search all cards' titles + descriptions (`Ctrl+K` / `Cmd+K`, debounced 250ms). Toggle dark/light mode; your choice persists in a cookie (you can also use OS preference when no cookie exists). Press `Esc` to restore the board after searching.
 - **Column management** — Right-click context menu: rename, reorder, delete (children are soft-deleted along with it).
