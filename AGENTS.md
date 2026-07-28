@@ -1,6 +1,6 @@
 # Kanban Board — Agent Guide
 
-Single-file app (`index.html`, ~3123 lines), zero dependencies, no build step. SQLite via sql.js WebAssembly runs in-browser; Node HTTP server serves `.wasm` with correct MIME type and provides disk persistence API endpoints. (Line count drifts as features evolve.)
+Single-file app (`index.html`, ~3312 lines), zero dependencies, no build step. SQLite via sql.js WebAssembly runs in-browser; Node HTTP server serves `.wasm` with correct MIME type and provides disk persistence API endpoints. (Line count drifts as features evolve.)
 
 ## Run commands
 
@@ -39,7 +39,7 @@ Manual edit-and-refresh only — no build step, no package manager, no lint/type
 - **Database**: sql.js (SQLite WebAssembly) runs in-memory via `initSqlJs({ locateFile: file => 'assets/' + file })`. WASM binary at `assets/sql-wasm.wasm` (~650KB), JS loader at `assets/sql-wasm.js` (~50KB).
 - **WYSIWYG**: SunEditor v2.47.11 for rich-text editing. JS at `assets/suneditor.min.js` (2.5MB), base CSS at `assets/suneditor.min.css` (55KB), dark theme overrides at `assets/suneditor.min.dark.css` (3.4KB). Exposes `window.SUNEDITOR`.
 - **Persistence**: DB exported to base64 and saved either via browser File System Access API (HTTPS) or the Node server's `/api/save-db` (HTTP). Labels are stored inside each `.sqlite` file itself (`labels_prefs(key, value TEXT)` table), so different databases have independent label sets. Theme preference is persisted in a cookie; last DB path is also stored as a cookie for auto-resume on load (HTTP only — HTTPS uses FileHandles that can't be serialized).
-- **Schema**: 3 main tables + `labels_prefs` — `columns`, `tasks` (`task_type`: 'epic'/'task', `parent_id`: INTEGER, `card_labels`: TEXT, `display_name`: TEXT), `comments`. Default columns ("To Do", "Blocked", "In Progress", "Done") defined in `DEFAULT_COLUMNS`.
+- **Schema**: 3 main tables + `labels_prefs` — `columns`, `tasks` (`task_type`: 'epic'/'task', `parent_id`: INTEGER, `card_labels`: TEXT, `display_name`: TEXT, `subtasks`: TEXT JSON), `comments`. Default columns ("To Do", "Blocked", "In Progress", "Done") defined in `DEFAULT_COLUMNS`.
 - **Display name**: Optional per-task field that overrides the title on cards. Stored as `tasks.display_name` (TEXT). Auto-migrated via `ALTER TABLE` if column doesn't exist yet. If set and non-empty, displayed on cards instead of the canonical title; search still filters by title + description only.
 - **Manage Labels** (`openLabelManager()`): Button in top bar opens a modal with per-label name, display alias (for card labels), color picker, and 🗑 delete button. Always closes any other active overlay first so it never stacks under them. Uses server's `kanban_prefs.json` via `/api/preferences?key=kanban_labels` to seed labels on new databases (falls back to hardcoded defaults).
 - **Importing** a `.sqlite` file replaces in-memory state and calls `renderBoard()` — does NOT call autoSave(). Destructive: current board state is overwritten with no undo. Auto-save only works on HTTPS via the browser File System Access API; over HTTP you must manually save after each session.
@@ -96,6 +96,19 @@ Comments use raw HTML; always pass user input through `sanitizeHtml()` before re
 ## Task types & linking
 
 - **Parent/child hierarchy**: Any task can reference another via `parent_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL`. Circular references are prevented by walking up the tree in `setParentTask()`. Epics display a 📁 badge with child count on the card.
+
+## Sub-tasks
+
+Inline sub-task tracking stored as JSON in `tasks.subtasks` — a JSON array of `{ id (string), title (string), done (boolean) }`.
+
+- **Card view**: Thin progress bar + `✓ X/Y` text below card labels (hidden when no sub-tasks). Clicking opens the detail modal.
+- **Detail modal**: Section above "Linked Tasks" with a list, add input, and edit/delete buttons. Inline editing via an `<input>` that replaces the title `<span>` on edit.
+- **Helper functions**: `parseSubtasks()`, `saveSubtasks()`, `addSubtask()`, `toggleSubtask()`, `deleteSubtask()`, `editSubtask()`, `getSubtaskProgress()`, `addSubtaskFromInput()`, `renderSubtasks()`, `startEditSubtask()`.
+- **Persistence**: Every add/delete/toggle/edit calls `autoSave()` after `db.run()`.
+- **Migration**: `subtasks TEXT DEFAULT '[]'` added to all DB initialization paths (`initNewDB()`, `handleImport()`, `openExistingDatabase()`). Uses `PRAGMA table_info(tasks)` check before ALTER.
+- **Deletion**: Sub-tasks are implicitly deleted with their parent task (tied to the `tasks` row).
+- **Empty title validation**: Rejects empty/whitespace-only titles when adding or editing (shows toast).
+- **UI update on edit**: All four subtask functions call `renderSubtasks()` after saving to update the modal in real-time.
 
 ## Keyboard shortcuts
 

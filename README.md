@@ -1,10 +1,11 @@
-# Kanban Board — Local SQLite [v1.8.1]
+# Kanban Board — Local SQLite [v1.9.0]
 
 A local-only kanban board for organizing tasks across four default columns (To Do, Blocked, In Progress, Done). Every database lives in its own `.sqlite` file on your machine — no accounts, no cloud sync, no external services.
 
 ## Features at a glance
 
 - **Task hierarchy** — Create Epics (📁 with child count) or regular Tasks. Link any task as parent/child of another; circular references are prevented automatically.
+- **Sub-tasks** — Track inline sub-tasks per card with a progress bar on the card and a full detail modal (add, toggle, edit inline, delete).
 - **Drag-and-drop** — Reorder cards within a column or move them between columns using HTML5 native drag & drop (fractional sort order for smooth gaps).
 - **Display names** — Optional per-task alias that overrides the title on cards while search still matches the canonical title and description.
 - **Comments** — Rich-text WYSIWYG editor powered by SunEditor (bold, italic, underline, strikethrough, font color, highlight, remove format, font/size selectors, block formatting, lists, indent/outdent, align, tables, horizontal rules, links, images, inline/code blocks, undo/redo) with input sanitized against `<script>` tags, event handlers, and `javascript:` URLs. Press `Esc` to cancel an open comment editor.

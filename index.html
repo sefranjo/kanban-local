@@ -486,6 +486,22 @@ mark.search-highlight {
 /* Empty state */
 .empty-column { text-align: center; padding: 20px; color: var(--text-secondary); font-size: 13px; }
 
+/* Sub-tasks progress on card */
+.card-subtasks-progress { margin-bottom: 6px; cursor: pointer; }
+.card-subtasks-bar { height: 4px; background: var(--border-color); border-radius: 2px; overflow: hidden; }
+.card-subtasks-bar-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.3s ease; }
+.card-subtasks-text { font-size: 11px; color: var(--text-secondary); margin-top: 2px; font-weight: 600; }
+
+/* Subtasks section in modal */
+.subtask-input-row { display: flex; gap: 6px; margin-top: 8px; }
+.subtask-item { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 13px; }
+.subtask-item.done .subtask-title { text-decoration: line-through; color: var(--text-secondary); }
+.subtask-title { flex: 1; word-break: break-word; }
+.subtask-edit-input { flex: 1; padding: 3px 6px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-primary); color: var(--text-primary); font-size: 13px; font-family: inherit; outline: none; }
+.subtask-edit-input:focus { border-color: var(--accent); }
+.subtask-btn { background: none; border: none; cursor: pointer; font-size: 13px; padding: 2px 4px; border-radius: 3px; color: var(--text-secondary); }
+.subtask-btn:hover { background: rgba(0,0,0,0.08); color: var(--text-primary); }
+
 @media (max-width: 900px) {
   .topbar { flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
   .search-box { width: 100%; order: -1; }
@@ -1145,7 +1161,7 @@ function initNewDB() {
   try {
     db.run("CREATE TABLE columns (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0)");
     // column_id and parent_id are nullable — required for soft-delete.
-    db.run("CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, column_id INTEGER DEFAULT NULL REFERENCES columns(id), title TEXT NOT NULL, description TEXT DEFAULT '', task_type TEXT DEFAULT 'task' CHECK(task_type IN ('epic', 'task')), parent_id INTEGER DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL, card_labels TEXT DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, display_name TEXT DEFAULT '', deleted INTEGER NOT NULL DEFAULT 0)");
+    db.run("CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, column_id INTEGER DEFAULT NULL REFERENCES columns(id), title TEXT NOT NULL, description TEXT DEFAULT '', task_type TEXT DEFAULT 'task' CHECK(task_type IN ('epic', 'task')), parent_id INTEGER DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL, card_labels TEXT DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, display_name TEXT DEFAULT '', deleted INTEGER NOT NULL DEFAULT 0, subtasks TEXT DEFAULT '[]')");
     db.run("CREATE TABLE comments (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, body TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, deleted INTEGER NOT NULL DEFAULT 0)");
 
     // Seed default columns using dynamic IDs to avoid collisions on partially-initialized databases.
@@ -1444,10 +1460,18 @@ async function openDatabaseViaServer(filePath) {
           var sql = "CREATE TABLE _mig AS SELECT * FROM tasks";
           db.exec(sql);
           db.run("DROP TABLE tasks");
-          db.run(`CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, column_id INTEGER DEFAULT NULL, title TEXT NOT NULL, description TEXT DEFAULT '', task_type TEXT DEFAULT 'task', parent_id INTEGER DEFAULT NULL, card_labels TEXT DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, display_name TEXT DEFAULT '', deleted INTEGER NOT NULL DEFAULT 0)`);
-          db.run("INSERT INTO tasks SELECT * FROM _mig");
+           db.run(`CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, column_id INTEGER DEFAULT NULL, title TEXT NOT NULL, description TEXT DEFAULT '', task_type TEXT DEFAULT 'task', parent_id INTEGER DEFAULT NULL, card_labels TEXT DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, display_name TEXT DEFAULT '', deleted INTEGER NOT NULL DEFAULT 0, subtasks TEXT DEFAULT '[]')`);
+           db.run("INSERT INTO tasks SELECT * FROM _mig");
           db.run("DROP TABLE _mig");
         }
+
+        // Migrate: add subtasks column if missing.
+        try {
+          var subCols = db.exec("PRAGMA table_info(tasks)")[0]?.values || [];
+          if (!subCols.find(c => c[1] === 'subtasks')) {
+            db.run("ALTER TABLE tasks ADD COLUMN subtasks TEXT DEFAULT '[]'");
+          }
+        } catch(e) {}
       } catch (e) { console.error('[migrateSchemaForSoftDelete]', e.message); }
     }
     migrateSchemaForSoftDelete();
@@ -1528,10 +1552,18 @@ async function handleImport(event) {
             var sql3 = "CREATE TABLE _mig2 AS SELECT * FROM tasks";
             db.exec(sql3);
             db.run("DROP TABLE tasks");
-            db.run(`CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, column_id INTEGER DEFAULT NULL, title TEXT NOT NULL, description TEXT DEFAULT '', task_type TEXT DEFAULT 'task', parent_id INTEGER DEFAULT NULL, card_labels TEXT DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, display_name TEXT DEFAULT '', deleted INTEGER NOT NULL DEFAULT 0)`);
+            db.run(`CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, column_id INTEGER DEFAULT NULL, title TEXT NOT NULL, description TEXT DEFAULT '', task_type TEXT DEFAULT 'task', parent_id INTEGER DEFAULT NULL, card_labels TEXT DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, display_name TEXT DEFAULT '', deleted INTEGER NOT NULL DEFAULT 0, subtasks TEXT DEFAULT '[]')`);
             db.run("INSERT INTO tasks SELECT * FROM _mig2");
             db.run("DROP TABLE _mig2");
           }
+
+          // Migrate: add subtasks column if missing.
+          try {
+            var subCols = db.exec("PRAGMA table_info(tasks)")[0]?.values || [];
+            if (!subCols.find(c => c[1] === 'subtasks')) {
+              db.run("ALTER TABLE tasks ADD COLUMN subtasks TEXT DEFAULT '[]'");
+            }
+          } catch(e) {}
         } catch (e3) { console.error('[import]', e3.message); }
 
         await seedLabelsIfMissing();
@@ -1909,6 +1941,13 @@ function createCardElement(task, colId, commentMap = {}, search = '') {
   }
 
   let html = renderCardLabels(task.card_labels || '', search);
+  const progress = getSubtaskProgress(task);
+  if (progress.total > 0) {
+    html += `<div class="card-subtasks-progress" onclick="openDetail(${task.id})">
+      <div class="card-subtasks-bar"><div class="card-subtasks-bar-fill" style="width:${(progress.done/progress.total)*100}%"></div></div>
+      <div class="card-subtasks-text">&#10003; ${progress.done}/${progress.total}</div>
+    </div>`;
+  }
     html += `<div class="card-title">${typeIcon}${linkedIcons}${displayTitle}</div>`;
   if (task.description) {
     const plainDesc = task.description.replace(/<[^>]*>/g, '');
@@ -1950,6 +1989,136 @@ function mapRows(result) {
     for (let i = 0; i < cols.length; i++) o[cols[i]] = v[i];
     return o;
   });
+}
+
+// ========== SUB-TASKS ==========
+function parseSubtasks(task) {
+  if (!task.subtasks) return [];
+  try { return JSON.parse(task.subtasks); } catch(e) { return []; }
+}
+
+function saveSubtasks(taskId, subtasks) {
+  db.run("UPDATE tasks SET subtasks = ? WHERE id = ?", [JSON.stringify(subtasks), taskId]);
+  autoSave();
+}
+
+function addSubtask(taskId, title) {
+  if (!title || !title.trim()) { showToast('Sub-task title cannot be empty.'); return; }
+  const taskResult = db.exec("SELECT * FROM tasks WHERE id = ?", [taskId]);
+  if (taskResult.length === 0) return;
+  const task = mapRows(taskResult[0])[0];
+  const subtasks = parseSubtasks(task);
+  const id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
+  subtasks.push({ id, title: title.trim(), done: false });
+  saveSubtasks(taskId, subtasks);
+  renderBoard();
+  renderSubtasks(mapRows(db.exec("SELECT * FROM tasks WHERE id = ?", [taskId])[0])[0]);
+}
+
+function toggleSubtask(taskId, subtaskId) {
+  const taskResult = db.exec("SELECT * FROM tasks WHERE id = ?", [taskId]);
+  if (taskResult.length === 0) return;
+  const task = mapRows(taskResult[0])[0];
+  const subtasks = parseSubtasks(task);
+  for (const st of subtasks) {
+    if (st.id === subtaskId) { st.done = !st.done; break; }
+  }
+  saveSubtasks(taskId, subtasks);
+  renderBoard();
+  renderSubtasks(mapRows(db.exec("SELECT * FROM tasks WHERE id = ?", [taskId])[0])[0]);
+}
+
+function deleteSubtask(taskId, subtaskId) {
+  const taskResult = db.exec("SELECT * FROM tasks WHERE id = ?", [taskId]);
+  if (taskResult.length === 0) return;
+  const task = mapRows(taskResult[0])[0];
+  const subtasks = parseSubtasks(task).filter(s => s.id !== subtaskId);
+  saveSubtasks(taskId, subtasks);
+  renderBoard();
+  renderSubtasks(mapRows(db.exec("SELECT * FROM tasks WHERE id = ?", [taskId])[0])[0]);
+}
+
+function editSubtask(taskId, subtaskId, newTitle) {
+  if (!newTitle || !newTitle.trim()) { showToast('Sub-task title cannot be empty.'); return; }
+  const taskResult = db.exec("SELECT * FROM tasks WHERE id = ?", [taskId]);
+  if (taskResult.length === 0) return;
+  const task = mapRows(taskResult[0])[0];
+  const subtasks = parseSubtasks(task);
+  for (const st of subtasks) {
+    if (st.id === subtaskId) { st.title = newTitle.trim(); break; }
+  }
+  saveSubtasks(taskId, subtasks);
+  renderBoard();
+  renderSubtasks(mapRows(db.exec("SELECT * FROM tasks WHERE id = ?", [taskId])[0])[0]);
+}
+
+function getSubtaskProgress(task) {
+  const subtasks = parseSubtasks(task);
+  if (subtasks.length === 0) return { done: 0, total: 0 };
+  const done = subtasks.filter(s => s.done).length;
+  return { done, total: subtasks.length };
+}
+
+function addSubtaskFromInput(taskId) {
+  const input = document.getElementById('subtaskInput');
+  if (!input) return;
+  const title = input.value.trim();
+  if (!title) { showToast('Sub-task title cannot be empty.'); return; }
+  addSubtask(taskId, title);
+  input.value = '';
+}
+
+function renderSubtasks(task) {
+  const list = document.getElementById('subtaskList');
+  if (!list) return;
+  const subtasks = parseSubtasks(task);
+  if (subtasks.length === 0) {
+    list.innerHTML = '<div style="font-size:12px;color:var(--text-secondary);font-style:italic;">No sub-tasks yet.</div>';
+    return;
+  }
+  let html = '';
+  for (const st of subtasks) {
+    const doneClass = st.done ? ' done' : '';
+    html += '<div class="subtask-item' + doneClass + '">';
+    html += '<input type="checkbox" ' + (st.done ? 'checked' : '') + ' onchange="toggleSubtask(' + task.id + ',\'' + st.id + '\')">';
+    html += '<span class="subtask-title" id="stitle-' + st.id + '">' + escapeHtml(st.title) + '</span>';
+    html += '<button class="subtask-btn" onclick="startEditSubtask(' + task.id + ',\'' + st.id + '\')" title="Edit">&#9998;</button>';
+    html += '<button class="subtask-btn" onclick="deleteSubtask(' + task.id + ',\'' + st.id + '\')" title="Delete">&times;</button>';
+    html += '</div>';
+  }
+  list.innerHTML = html;
+}
+
+function startEditSubtask(taskId, subtaskId) {
+  const span = document.getElementById('stitle-' + subtaskId);
+  if (!span) return;
+  const taskResult = db.exec("SELECT * FROM tasks WHERE id = ?", [taskId]);
+  if (taskResult.length === 0) return;
+  const task = mapRows(taskResult[0])[0];
+  const subtasks = parseSubtasks(task);
+  const st = subtasks.find(s => s.id === subtaskId);
+  if (!st) return;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'subtask-edit-input';
+  input.value = st.title;
+  input.onkeydown = function(e) {
+    if (e.key === 'Enter') {
+      editSubtask(taskId, subtaskId, input.value);
+    }
+    if (e.key === 'Escape') {
+      renderSubtasks(mapRows(db.exec("SELECT * FROM tasks WHERE id = ?", [taskId])[0])[0]);
+    }
+  };
+  input.onblur = function() {
+    setTimeout(() => {
+      const taskResult2 = db.exec("SELECT * FROM tasks WHERE id = ?", [taskId]);
+      if (taskResult2.length > 0) renderSubtasks(mapRows(taskResult2[0])[0]);
+    }, 150);
+  };
+  span.replaceWith(input);
+  input.focus();
+  input.select();
 }
 
 function escapeHtml(str) {
@@ -2289,6 +2458,14 @@ function openDetail(taskId, showDeletedComments) {
     // Initialize SunEditor after modal is visible (v2 can't init hidden elements)
     initSunEditor();
     descEditor.setContents(descContent);
+
+    // Scroll to subtasks section if it exists.
+    setTimeout(() => {
+      const subtasksSection = document.getElementById('subtasksSection');
+      if (subtasksSection) {
+        subtasksSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
   } catch (err) { console.error(err); }
 }
 
@@ -2334,6 +2511,18 @@ function getParentName(parentId) {
 function renderLinkedTasks(task) {
   const section = document.getElementById('linkedTasksSection');
   let html = '<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border-color);">';
+
+  // Subtasks section
+  const subtasks = parseSubtasks(task);
+  html += '<div id="subtasksSection" style="margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border-color);">';
+  html += '<h3 style="font-size:14px;font-weight:700;margin-bottom:8px;">Sub-tasks</h3>';
+  html += '<div id="subtaskList"></div>';
+  html += '<div class="subtask-input-row">';
+  html += '<input id="subtaskInput" class="form-input" placeholder="Add a sub-task..." style="flex:1;padding:6px 8px;font-size:13px;" onkeydown="if(event.key===\'Enter\'){addSubtaskFromInput(' + task.id + ');return false;}">';
+  html += '<button class="btn btn-primary" style="padding:6px 12px;font-size:12px;" onclick="addSubtaskFromInput(' + task.id + ')">Add</button>';
+  html += '</div>';
+  html += '</div>';
+
   html += '<h3 style="font-size:14px;font-weight:700;margin-bottom:8px;">Linked Tasks</h3>';
 
   // Parent section
@@ -2411,6 +2600,7 @@ function renderLinkedTasks(task) {
 
   html += '</div>';
   section.innerHTML = html;
+  renderSubtasks(task);
 }
 
 function setParentTask(value) {
