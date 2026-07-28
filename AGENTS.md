@@ -1,6 +1,19 @@
 # Kanban Board — Agent Guide
 
-Single-file app (`index.html`, ~3312 lines), zero dependencies, no build step. SQLite via sql.js WebAssembly runs in-browser; Node HTTP server serves `.wasm` with correct MIME type and provides disk persistence API endpoints. (Line count drifts as features evolve.)
+Single-file app (`index.html`, ~3300 lines), zero dependencies, no build step. SQLite via sql.js WebAssembly runs in-browser; Node HTTP server serves `.wasm` with correct MIME type and provides disk persistence API endpoints. (Line count drifts as features evolve.)
+
+## Quick Reference
+
+| Item | Detail |
+|---|---|
+| Main file | `index.html` (~3300 lines) — the only file to edit |
+| Assets | `assets/` — WASM loader, SunEditor, CSS |
+| Server | `server.js` — HTTP server with API endpoints |
+| Server config | `kanban_prefs.json` (in project root) |
+| Server log | `/tmp/kanban-server.log` |
+| Default port | 8089 (hardcoded in `server.js`) |
+| Run | `./start.sh [port]` |
+| Stop | `pkill -f "node server"` |
 
 ## Run commands
 
@@ -10,7 +23,7 @@ node server.js          # foreground — always binds to 8089 (ignores CLI args)
 pkill -f "node server"  # stop
 ```
 
-**Node.js required.** Python fallback in `start.sh` serves static files but has **no API support**, so save/open features will not work. Server log → `/tmp/kanban-server.log`.
+**Node.js required.** `start.sh` tries Node first, then Python (which has **no API support**, so save/open features will not work). Server log → `/tmp/kanban-server.log`.
 
 ## Port quirk
 
@@ -18,7 +31,7 @@ pkill -f "node server"  # stop
 
 ## Server API (for disk persistence)
 
-The browser never writes directly to disk over plain HTTP (`file://`). On HTTP a Node server provides four endpoints:
+The browser never writes directly to disk over plain HTTP (`file://`). On HTTP a Node server provides five endpoints:
 
 | Endpoint | Method | Purpose |
 |---|---|---|
@@ -26,16 +39,22 @@ The browser never writes directly to disk over plain HTTP (`file://`). On HTTP a
 | `/api/save-db` | POST `{ data: "<base64>" }` + optional `X-Target-Path` header | Atomically writes DB to the recorded path via a temp file + rename; header overrides setup-save target |
 | `/api/open-file` | POST `{ path }` | Streams a local `.sqlite` as binary response (`Content-Type: application/octet-stream`) |
 | `/api/list?path=<encoded>` | GET | Directory listing filtered to interesting files (`.sqlite`, `.db`, dirs) |
+| `/api/preferences` | POST/GET | Read/write `kanban_prefs.json` preferences (separate from per-database labels) |
 
-The server also maintains **preferences** in `kanban_prefs.json` (read/written via `/api/preferences`). This is separate from per-database labels.
+The server also maintains preferences in `kanban_prefs.json` (in project root). This is separate from per-database labels.
 
 ## Development workflow
 
 Manual edit-and-refresh only — no build step, no package manager, no lint/typecheck/format scripts. Don't look for test or type scripts; they don't exist.
 
+- Edit `index.html` directly (the only source file).
+- Assets live in `assets/` — WASM loader, SunEditor JS/CSS.
+- The server runs via `start.sh` (or `node server.js` in foreground).
+- After editing, refresh the browser to see changes.
+
 ## Architecture
 
-- **Single file**: `index.html` (~3123 lines) — CSS `<style>`, inline JS, no build step.
+- **Single file**: `index.html` (~3300 lines) — CSS `<style>`, inline JS, no build step.
 - **Database**: sql.js (SQLite WebAssembly) runs in-memory via `initSqlJs({ locateFile: file => 'assets/' + file })`. WASM binary at `assets/sql-wasm.wasm` (~650KB), JS loader at `assets/sql-wasm.js` (~50KB).
 - **WYSIWYG**: SunEditor v2.47.11 for rich-text editing. JS at `assets/suneditor.min.js` (2.5MB), base CSS at `assets/suneditor.min.css` (55KB), dark theme overrides at `assets/suneditor.min.dark.css` (3.4KB). Exposes `window.SUNEDITOR`.
 - **Persistence**: DB exported to base64 and saved either via browser File System Access API (HTTPS) or the Node server's `/api/save-db` (HTTP). Labels are stored inside each `.sqlite` file itself (`labels_prefs(key, value TEXT)` table), so different databases have independent label sets. Theme preference is persisted in a cookie; last DB path is also stored as a cookie for auto-resume on load (HTTP only — HTTPS uses FileHandles that can't be serialized).
@@ -43,6 +62,14 @@ Manual edit-and-refresh only — no build step, no package manager, no lint/type
 - **Display name**: Optional per-task field that overrides the title on cards. Stored as `tasks.display_name` (TEXT). Auto-migrated via `ALTER TABLE` if column doesn't exist yet. If set and non-empty, displayed on cards instead of the canonical title; search still filters by title + description only.
 - **Manage Labels** (`openLabelManager()`): Button in top bar opens a modal with per-label name, display alias (for card labels), color picker, and 🗑 delete button. Always closes any other active overlay first so it never stacks under them. Uses server's `kanban_prefs.json` via `/api/preferences?key=kanban_labels` to seed labels on new databases (falls back to hardcoded defaults).
 - **Importing** a `.sqlite` file replaces in-memory state and calls `renderBoard()` — does NOT call autoSave(). Destructive: current board state is overwritten with no undo. Auto-save only works on HTTPS via the browser File System Access API; over HTTP you must manually save after each session.
+
+## Keyboard shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+K` / `Cmd+K` | Focus search box |
+| `Ctrl+T` / `Cmd+T` | Toggle dark/light theme |
+| `Escape` | Close modals, context menus, cancel comment editor; clears search if focused |
 
 ## Security
 
@@ -78,13 +105,13 @@ Three SunEditor instances managed by global variables:
 - **`commentEditor`** — new comment input (created in `toggleCommentEditor()`, destroyed on save/cancel).
 - **`commentEditEditors`** — map of per-comment SunEditor instances for inline comment editing (created in `loadComments()` / `loadCommentsWithEditFlag()`, cleaned up in `destroyCommentEditors()` called by `renderComments()`).
 
-All instances use `SUNEDITOR.create(id, config)` with a shared `EDITOR_CONFIG` object (line ~776 in `index.html`) that defines the full `buttonList` (bold, italic, underline, strike, fontColor, hiliteColor, removeFormat, font, fontSize, textStyle, lineHeight, formatBlock, paragraphStyle, blockquote, list, indent, outdent, align, table, horizontalRule, link, image, codeblock, quote, undo, redo) and `plugins` (`['image', 'table']`). Output is retrieved via `getContents()` and set via `setContents()`.
+All instances use `SUNEDITOR.create(id, config)` with a shared `EDITOR_CONFIG` object that defines the full `buttonList` (bold, italic, underline, strike, fontColor, hiliteColor, removeFormat, font, fontSize, textStyle, lineHeight, formatBlock, paragraphStyle, blockquote, list, indent, outdent, align, table, horizontalRule, link, image, codeblock, quote, undo, redo) and `plugins` (`['image', 'table']`). Output is retrieved via `getContents()` and set via `setContents()`.
 
 Descriptions from the DB are already HTML (stored via `sanitizeHtml(desc)`); the app detects plain text by checking for `<[a-z]>` tags and only converts `\n` to `<br>` for plain text.
 
 Comments use raw HTML; always pass user input through `sanitizeHtml()` before rendering (strips `<script>`, event handlers, `javascript:` URLs). Pressing Escape on an open comment editor confirms unsaved changes.
 
-## SunEditor gotchas
+### SunEditor gotchas
 
 - **Init after `openModal()`** — SunEditor v2 cannot initialize on hidden elements. `descEditor` must be created after the detail modal is visible.
 - **Element ID without `#` prefix** — `SUNEDITOR.create('detailDesc', ...)` not `'#detailDesc'` because v2 uses `getElementById()`.
@@ -109,11 +136,3 @@ Inline sub-task tracking stored as JSON in `tasks.subtasks` — a JSON array of 
 - **Deletion**: Sub-tasks are implicitly deleted with their parent task (tied to the `tasks` row).
 - **Empty title validation**: Rejects empty/whitespace-only titles when adding or editing (shows toast).
 - **UI update on edit**: All four subtask functions call `renderSubtasks()` after saving to update the modal in real-time.
-
-## Keyboard shortcuts
-
-| Shortcut | Action |
-|---|---|
-| `Ctrl+K` / `Cmd+K` | Focus search box |
-| `Ctrl+T` / `Cmd+T` | Toggle dark/light theme |
-| `Escape` | Close modals, context menus, cancel comment editor; clears search if focused |
