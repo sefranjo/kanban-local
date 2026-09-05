@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="version" content="v1.9.2">
+  <meta name="version" id="metaVersion" content="">
   <title>Kanban Board</title>
 
 <style>
@@ -544,7 +544,7 @@ mark.search-highlight {
 <div class="topbar">
   <div class="topbar-left">
     <span class="topbar-title">Kanban Board</span>
-<span class="topbar-version">v1.9.2</span>
+<span class="topbar-version" id="versionDisplay"></span>
     <input type="text" id="searchBox" class="search-box" placeholder="Search tasks... (Ctrl+K)">
   </div>
   <div class="topbar-right">
@@ -759,7 +759,9 @@ mark.search-highlight {
 <script src="assets/suneditor.min.js"></script>
 <script>
 
-const APP_VERSION = '1.6.2';
+const APP_VERSION = '1.9.3';
+document.getElementById('metaVersion').content = APP_VERSION;
+document.getElementById('versionDisplay').textContent = APP_VERSION;
 // ========== GLOBALS ==========
 let db = null;
 let SQL = null;
@@ -1132,6 +1134,50 @@ async function syncLabelsToDb() {
    }
 }
 
+function migrateSchemaForSoftDelete() {
+  if (!db) return;
+  try {
+    var cols = db.exec("PRAGMA table_info(tasks)")[0]?.values || [];
+    if (!cols.find(c => c[1] === 'deleted')) {
+      db.run("ALTER TABLE tasks ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0");
+    } else {
+      db.run("UPDATE tasks SET deleted = 0 WHERE deleted IS NULL OR deleted < 0");
+    }
+
+    var colInfo = {};
+    for (const c of cols) colInfo[c[1]] = c;
+
+    // Migrate comments table to support soft-delete.
+    try {
+      var commentCols = db.exec("PRAGMA table_info(comments)")[0]?.values || [];
+      if (!commentCols.find(c => c[1] === 'deleted')) {
+        db.run("ALTER TABLE comments ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0");
+      } else {
+        db.run("UPDATE comments SET deleted = 0 WHERE deleted IS NULL OR deleted < 0");
+      }
+    } catch(e) {}
+
+    // Make column_id nullable — original schema has NOT NULL, but soft-delete needs NULL.
+    if (cols.find(c => c[1] === 'column_id') && !colInfo['column_id']?.[3]) {
+      try { db.run("PRAGMA foreign_keys=OFF"); } catch(e) {}
+      var sql = "CREATE TABLE _mig AS SELECT * FROM tasks";
+      db.exec(sql);
+      db.run("DROP TABLE tasks");
+      db.run(`CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, column_id INTEGER DEFAULT NULL, title TEXT NOT NULL, description TEXT DEFAULT '', task_type TEXT DEFAULT 'task', parent_id INTEGER DEFAULT NULL, card_labels TEXT DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, display_name TEXT DEFAULT '', deleted INTEGER NOT NULL DEFAULT 0, subtasks TEXT DEFAULT '[]')`);
+      db.run("INSERT INTO tasks SELECT * FROM _mig");
+      db.run("DROP TABLE _mig");
+    }
+
+    // Migrate: add subtasks column if missing.
+    try {
+      var subCols = db.exec("PRAGMA table_info(tasks)")[0]?.values || [];
+      if (!subCols.find(c => c[1] === 'subtasks')) {
+        db.run("ALTER TABLE tasks ADD COLUMN subtasks TEXT DEFAULT '[]'");
+      }
+    } catch(e) {}
+  } catch (e) { console.error('[migrateSchemaForSoftDelete]', e.message); }
+}
+
 const DEFAULT_COLUMNS = [
   { id: 1, title: 'To Do', order: 0 },
   { id: 2, title: 'Blocked', order: 1 },
@@ -1273,10 +1319,11 @@ function getDBBytes() {
 }
 
 function arrayBufferToBase64(buffer) {
-  var bytes = new Uint8Array(buffer);
-  var binary = '';
-  for (var i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
   }
   return btoa(binary);
 }
@@ -1324,8 +1371,7 @@ async function createNewDatabase() {
       savedFileHandle = handle;
       await saveToFile();
     } else if (location.protocol === 'https:' && 'showOpenFilePicker' in window) {
-      // FSA read-only: create DB, prompt for location, then download (can't auto-save to arbitrary path).
-      initNewDB();
+      // FSA read-only: prompt for location, then download (can't auto-save to arbitrary path).
       showServerFilePicker('save-new').finally(() => exportDatabase());
       hideSetupDialog();
       return;
@@ -1430,48 +1476,6 @@ async function openDatabaseViaServer(filePath) {
     db = new SQL.Database(bufBytes);
     
     // Ensure schema supports soft-delete.
-    function migrateSchemaForSoftDelete() {
-      try {
-        var cols = db.exec("PRAGMA table_info(tasks)")[0]?.values || [];
-        if (!cols.find(c => c[1] === 'deleted')) {
-          db.run("ALTER TABLE tasks ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0");
-        } else {
-          db.run("UPDATE tasks SET deleted = 0 WHERE deleted IS NULL OR deleted < 0");
-        }
-
-        var colInfo = {};
-          for (const c of cols) colInfo[c[1]] = c;
-
-          // Migrate comments table to support soft-delete.
-          try {
-            var commentCols = db.exec("PRAGMA table_info(comments)")[0]?.values || [];
-            if (!commentCols.find(c => c[1] === 'deleted')) {
-              db.run("ALTER TABLE comments ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0");
-            } else {
-              db.run("UPDATE comments SET deleted = 0 WHERE deleted IS NULL OR deleted < 0");
-            }
-          } catch(e) {}
-
-          // Make column_id nullable — original schema has NOT NULL, but soft-delete needs NULL.
-          if (cols.find(c => c[1] === 'column_id') && !colInfo['column_id']?.[3]) {
-          try { db.run("PRAGMA foreign_keys=OFF"); } catch(e) {}
-          var sql = "CREATE TABLE _mig AS SELECT * FROM tasks";
-          db.exec(sql);
-          db.run("DROP TABLE tasks");
-           db.run(`CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, column_id INTEGER DEFAULT NULL, title TEXT NOT NULL, description TEXT DEFAULT '', task_type TEXT DEFAULT 'task', parent_id INTEGER DEFAULT NULL, card_labels TEXT DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, display_name TEXT DEFAULT '', deleted INTEGER NOT NULL DEFAULT 0, subtasks TEXT DEFAULT '[]')`);
-           db.run("INSERT INTO tasks SELECT * FROM _mig");
-          db.run("DROP TABLE _mig");
-        }
-
-        // Migrate: add subtasks column if missing.
-        try {
-          var subCols = db.exec("PRAGMA table_info(tasks)")[0]?.values || [];
-          if (!subCols.find(c => c[1] === 'subtasks')) {
-            db.run("ALTER TABLE tasks ADD COLUMN subtasks TEXT DEFAULT '[]'");
-          }
-        } catch(e) {}
-      } catch (e) { console.error('[migrateSchemaForSoftDelete]', e.message); }
-    }
     migrateSchemaForSoftDelete();
 
     await seedLabelsIfMissing();
@@ -1523,48 +1527,10 @@ async function handleImport(event) {
        const buf = new Uint8Array(e.target.result);
         db = new SQL.Database(buf);
         
-        // Ensure schema supports soft-delete.
-        try {
-          var cols2 = db.exec("PRAGMA table_info(tasks)")[0]?.values || [];
-          if (!cols2.find(c => c[1] === 'deleted')) {
-            db.run("ALTER TABLE tasks ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0");
-          } else {
-            db.run("UPDATE tasks SET deleted = 0 WHERE deleted IS NULL OR deleted < 0");
-          }
+         // Ensure schema supports soft-delete.
+         migrateSchemaForSoftDelete();
 
-          var colInfo2 = {};
-          for (const c of cols2) colInfo2[c[1]] = c;
-
-          // Migrate comments table to support soft-delete.
-          try {
-            var commentCols = db.exec("PRAGMA table_info(comments)")[0]?.values || [];
-            if (!commentCols.find(c => c[1] === 'deleted')) {
-              db.run("ALTER TABLE comments ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0");
-            } else {
-              db.run("UPDATE comments SET deleted = 0 WHERE deleted IS NULL OR deleted < 0");
-            }
-          } catch(e) {}
-
-          if (cols2.find(c => c[1] === 'column_id') && !colInfo2['column_id']?.[3]) {
-            try { db.run("PRAGMA foreign_keys=OFF"); } catch(e) {}
-            var sql3 = "CREATE TABLE _mig2 AS SELECT * FROM tasks";
-            db.exec(sql3);
-            db.run("DROP TABLE tasks");
-            db.run(`CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, column_id INTEGER DEFAULT NULL, title TEXT NOT NULL, description TEXT DEFAULT '', task_type TEXT DEFAULT 'task', parent_id INTEGER DEFAULT NULL, card_labels TEXT DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, display_name TEXT DEFAULT '', deleted INTEGER NOT NULL DEFAULT 0, subtasks TEXT DEFAULT '[]')`);
-            db.run("INSERT INTO tasks SELECT * FROM _mig2");
-            db.run("DROP TABLE _mig2");
-          }
-
-          // Migrate: add subtasks column if missing.
-          try {
-            var subCols = db.exec("PRAGMA table_info(tasks)")[0]?.values || [];
-            if (!subCols.find(c => c[1] === 'subtasks')) {
-              db.run("ALTER TABLE tasks ADD COLUMN subtasks TEXT DEFAULT '[]'");
-            }
-          } catch(e) {}
-        } catch (e3) { console.error('[import]', e3.message); }
-
-        await seedLabelsIfMissing();
+         await seedLabelsIfMissing();
        renderBoard();
 
        // Try to establish FSA handle for auto-save (works on HTTPS).
@@ -1786,29 +1752,29 @@ function confirmPicker() {
     }
 
     // Normal confirmPicker flow (save-new mode from createNewDatabase).
-  if (_pickerMode === 'open') {
-    return openDatabaseViaServer(filePath)
-      .then(success => success || showToast('Opening failed — use "Open .sqlite" to try again.'))
-      .catch(e => {
-        console.error('[confirmPicker] Open failed:', e.message);
-        showToast('Opening failed — ' + e.message.slice(0, 80));
-      })
-      .finally(() => hideSetupDialog());
-  } else { // save-new — create fresh DB with default schema & labels
-    try {
-      initNewDB();
+    if (_pickerMode === 'open') {
+      return openDatabaseViaServer(filePath)
+        .then(success => success || showToast('Opening failed — use "Open .sqlite" to try again.'))
+        .catch(e => {
+          console.error('[confirmPicker] Open failed:', e.message);
+          showToast('Opening failed — ' + e.message.slice(0, 80));
+        })
+        .finally(() => hideSetupDialog());
+    } else { // save-new — create fresh DB with default schema & labels
+      try {
+        initNewDB();
 
-      return setupSaveTarget(filePath)
-        .then(ok => { if (!ok) throw new Error('Setup failed'); })
-        .then(() => autoSave())
-        .then(() => showToast('Database created!'))
-        .finally(hideSetupDialog);
-    } catch (e) {
-      console.error('[confirmPicker] Save-new failed:', e.message);
-      hideSetupDialog();
-      showToast('Failed to create database: ' + e.message.slice(0, 80));
+        return setupSaveTarget(filePath)
+          .then(ok => { if (!ok) throw new Error('Setup failed'); })
+          .then(() => autoSave())
+          .then(() => showToast('Database created!'))
+          .finally(hideSetupDialog);
+      } catch (e) {
+        console.error('[confirmPicker] Save-new failed:', e.message);
+        hideSetupDialog();
+        showToast('Failed to create database: ' + e.message.slice(0, 80));
+      }
     }
-  }
 }
 
 // ========== RENDERING ==========
@@ -1857,6 +1823,15 @@ function createColumnElement(col, filter = '') {
     } catch(e) {}
   }
 
+  // Batch epic child-counts to avoid N+1 queries.
+  const epicChildMap = {};
+  try {
+    const childCntResult = db.exec("SELECT parent_id, COUNT(*) as c FROM tasks WHERE parent_id IS NOT NULL AND deleted = 0 GROUP BY parent_id");
+    if (childCntResult.length > 0) {
+      for (const r of mapRows(childCntResult[0])) epicChildMap[r.parent_id] = r.c;
+    }
+  } catch(e) {}
+
   const titleEditable = document.createElement('span');
   titleEditable.className = 'column-title';
   const visibleCount = filter ? tasks.length : totalTaskCount;
@@ -1888,7 +1863,7 @@ function createColumnElement(col, filter = '') {
   }
 
   for (const task of tasks) {
-    body.appendChild(createCardElement(task, col.id, commentMap, filter));
+    body.appendChild(createCardElement(task, col.id, commentMap, filter, epicChildMap));
   }
 
   columnDiv.appendChild(body);
@@ -1902,7 +1877,7 @@ function createColumnElement(col, filter = '') {
   return columnDiv;
 }
 
-function createCardElement(task, colId, commentMap = {}, search = '') {
+function createCardElement(task, colId, commentMap = {}, search = '', epicChildMap = {}) {
   const div = document.createElement('div');
   let cardClass = 'card';
   div.draggable = true;
@@ -1915,13 +1890,8 @@ function createCardElement(task, colId, commentMap = {}, search = '') {
   // Epic badge + child count
   let typeIcon = '';
   if (task.task_type === 'epic') {
-    try {
-      const childResult = db.exec("SELECT COUNT(*) AS c FROM tasks WHERE parent_id = ? AND deleted = 0", [task.id]);
-      const childCount = childResult.length > 0 ? childResult[0].values[0][0] : 0;
-      typeIcon += `<span style="float:right;color:var(--text-secondary);font-size:12px;">📁 (${childCount})</span>`;
-    } catch(e) {
-      typeIcon = '<span style="float:right;color:var(--text-secondary);font-size:12px;">📁</span>';
-    }
+    const childCount = epicChildMap[task.id] || 0;
+    typeIcon += `<span style="float:right;color:var(--text-secondary);font-size:12px;">📁 (${childCount})</span>`;
   }
   // Linked indicators (left of title)
   let linkedIcons = '';
@@ -2189,26 +2159,23 @@ function renderLabelPicker(containerId, inputId, selectedLabelsStr) {
       btn.removeAttribute('aria-pressed');
     }
 
-    // Click handler to toggle label on/off
-    (function(btnEl, lbl) {
-      btnEl.onclick = function(e) {
-        e.stopPropagation();
-        const inp = document.getElementById(inputId);
-        if (!inp) return;
-        const currentSel = inp.value || '';
-        let labels = currentSel.split(',').map(s => s.trim()).filter(Boolean);
-        if (labels.includes(lbl)) {
-          labels = labels.filter(l => l !== lbl);
-          btnEl.classList.remove('selected');
-          btnEl.removeAttribute('aria-pressed');
-        } else {
-          labels.push(lbl);
-          btnEl.classList.add('selected');
-          btnEl.setAttribute('aria-pressed', 'true');
-        }
-        inp.value = labels.join(', ');
-      };
-    })(btn, name);
+    btn.onclick = function(e) {
+      e.stopPropagation();
+      const inp = document.getElementById(inputId);
+      if (!inp) return;
+      const currentSel = inp.value || '';
+      let labels = currentSel.split(',').map(s => s.trim()).filter(Boolean);
+      if (labels.includes(name)) {
+        labels = labels.filter(l => l !== name);
+        btn.classList.remove('selected');
+        btn.removeAttribute('aria-pressed');
+      } else {
+        labels.push(name);
+        btn.classList.add('selected');
+        btn.setAttribute('aria-pressed', 'true');
+      }
+      inp.value = labels.join(', ');
+    };
   }
 }
 
@@ -2635,7 +2602,7 @@ function unlinkParentTask() {
   renderBoard();
 }
 
-function loadComments(taskId, showDeleted) {
+function loadComments(taskId, showDeleted, editId) {
   const list = document.getElementById('commentList');
   list.innerHTML = '';
 
@@ -2643,6 +2610,11 @@ function loadComments(taskId, showDeleted) {
     const result = db.exec("SELECT * FROM comments WHERE task_id = ?" + (showDeleted ? '' : ' AND deleted = 0') + " ORDER BY created_at ASC", [taskId]);
     if (result.length === 0) return;
     const comments = mapRows(result[0]);
+
+    // Add _editing flag (set only for the comment being edited).
+    for (const c of comments) {
+      c._editing = editId !== undefined && parseInt(c.id) === editId;
+    }
 
     for (const c of comments) {
       const div = document.createElement('div');
@@ -2672,7 +2644,7 @@ function loadComments(taskId, showDeleted) {
       list.appendChild(div);
     }
 
-    // Initialize SunEditor for the editing comment
+    // Initialize SunEditor for the editing comment.
     const editingComment = comments.find(c => c._editing);
     if (editingComment) {
       commentEditEditors[editingComment.id] = SUNEDITOR.create('comment-edit-editor-' + editingComment.id, { ...EDITOR_CONFIG, placeholder: 'Write a comment...' });
@@ -2683,76 +2655,14 @@ function loadComments(taskId, showDeleted) {
 
 function renderComments(taskId, showDeleted) {
   destroyCommentEditors();
-  try {
-    const result = db.exec("SELECT * FROM comments WHERE task_id = ?" + (showDeleted ? '' : ' AND deleted = 0') + " ORDER BY created_at ASC", [taskId]);
-    if (result.length === 0) {
-      document.getElementById('commentList').innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">No comments yet.</p>';
-      return;
-    }
-    const comments = mapRows(result[0]);
-
-    // Add _editing flag based on whether there's an active edit editor in DOM
-    for (const c of comments) {
-      // No edit-mode editors exist in normal path — flag is set by loadCommentsWithEditFlag.
-      c._editing = false;
-    }
-
-    loadComments(taskId, showDeleted);
-  } catch (err) {}
+  loadComments(taskId, showDeleted);
 }
 
 function editComment(commentId, taskId) {
   try {
     const result = db.exec("SELECT * FROM comments WHERE id = ?", [commentId]);
     if (result.length === 0) return;
-    loadCommentsWithEditFlag(taskId, commentId);
-  } catch (err) { console.error(err); }
-}
-
-function loadCommentsWithEditFlag(taskId, editId) {
-  const list = document.getElementById('commentList');
-  try {
-    const result = db.exec("SELECT * FROM comments WHERE task_id = ? AND deleted = 0 ORDER BY created_at ASC", [taskId]);
-    if (result.length === 0) return;
-    let comments = mapRows(result[0]);
-
-    // Add _editing flag
-    for (const c of comments) {
-      c._editing = parseInt(c.id) === editId;
-    }
-
-    list.innerHTML = '';
-    for (const c of comments) {
-      const div = document.createElement('div');
-      div.className = 'comment-item';
-      div.dataset.commentId = c.id;
-
-      const date = new Date(c.created_at).toLocaleString();
-
-      let bodyHtml;
-      if (c._editing) {
-        bodyHtml = `<div class="form-textarea contenteditable-editor comment-edit-editor" id="comment-edit-editor-${c.id}" data-comment-id="${c.id}" contenteditable="true" style="min-height:60px;max-height:200px;overflow-y:auto;">${sanitizeHtml(c.body)}</div>`;
-      } else {
-        bodyHtml = '<div class="comment-body">' + sanitizeHtml(c.body) + '</div>';
-      }
-
-      div.innerHTML = `
-        ${bodyHtml}
-        <div class="comment-meta">
-          <span>${date}</span>
-          <div class="comment-actions">
-            ${c._editing
-              ? '<button class="card-action-btn" onclick="saveComment(' + c.id + ')">💾</button><button class="card-action-btn" onclick="renderComments(' + taskId + ')">Cancel</button>'
-               : '<button class="card-action-btn" onclick="editComment(' + c.id + ',' + taskId + ')">✏️</button><button class="card-action-btn" onclick="deleteComment(' + c.id + ',' + taskId + ')" title="Delete">&times;</button>'}
-          </div>
-        </div>`;
-
-      list.appendChild(div);
-    }
-
-    // Initialize SunEditor for the editing comment
-    commentEditEditors[editId] = SUNEDITOR.create('comment-edit-editor-' + editId, { ...EDITOR_CONFIG, placeholder: 'Write a comment...' });
-    commentEditEditors[editId].setContents(sanitizeHtml(comments.find(c => parseInt(c.id) === editId)?.body || ''));
+    loadComments(taskId, false, commentId);
   } catch (err) { console.error(err); }
 }
 
@@ -3101,16 +3011,7 @@ function softDeleteTask(taskId) {
   }
   saveParentIds(taskId);
 
-  function ensureDeletedCol() {
-    try {
-      var cols = db.exec("PRAGMA table_info(tasks)")[0]?.values || [];
-      if (!cols.find(c => c[1] === 'deleted')) {
-        console.log('[softDeleteTask] migrating: adding deleted column');
-        db.run("ALTER TABLE tasks ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0");
-      }
-    } catch (e2) {}
-  }
-  ensureDeletedCol();
+  migrateSchemaForSoftDelete();
 
   // Walk and soft-delete — only set the flag, don't touch FK columns.
   function cascadeSoft(tid) {
@@ -3164,8 +3065,8 @@ async function loadBinContent() {
   let html = '';
   for (const t of rows) {
     const icon = t.task_type === 'epic' ? '📁' : '—';
-    html += `<tr>
-      <td><input type="checkbox" onchange="updateBinButtons()"></td>
+    html += `<tr data-task-id="${t.id}">
+      <td><input type="checkbox" data-task-id="${t.id}" onchange="updateBinButtons()"></td>
       <td class="title-cell" onclick="openDetail(${t.id}, true)" title="${escapeHtml(t.title || '')}">${escapeHtml((t.display_name && t.display_name.trim()) ? t.display_name : (t.title || ''))}</td>
       <td style="width:40px;text-align:center;">${icon}</td>
       <td style="white-space:nowrap;">${(t.created_at || '').slice(5, 16)}</td>
@@ -3184,7 +3085,7 @@ function updateBinButtons() {
 // Gather IDs of all checkboxes.
 function _getBinCheckedIds() {
   return Array.from(document.querySelectorAll('#binBody input[type=checkbox]:checked'))
-    .map(cb => cb.closest('tr')?.querySelector('.title-cell')?.getAttribute('onclick')?.match(/\d+/)?.[0]);
+    .map(cb => cb.dataset.taskId);
 }
 
 // Restore selected tasks from the bin.
