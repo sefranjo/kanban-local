@@ -20,7 +20,6 @@
   --danger: #eb5a46;
   --shadow: 0 1px 3px rgba(0,0,0,0.12);
   --radius: 8px;
-  --col-width: 300px;
 }
 
 [data-theme="dark"] {
@@ -107,8 +106,8 @@ body {
 
 /* Column */
 .column {
-  min-width: var(--col-width);
-  width: var(--col-width);
+  flex: 1;
+  min-width: 240px;
   background: var(--bg-column);
   border-radius: var(--radius);
   display: flex;
@@ -545,7 +544,7 @@ mark.search-highlight {
 <div class="topbar">
   <div class="topbar-left">
     <span class="topbar-title">Kanban Board</span>
-<span class="topbar-version">v1.9.1</span>
+<span class="topbar-version">v1.9.2</span>
     <input type="text" id="searchBox" class="search-box" placeholder="Search tasks... (Ctrl+K)">
   </div>
   <div class="topbar-right">
