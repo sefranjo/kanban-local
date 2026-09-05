@@ -1,4 +1,4 @@
-# Kanban Board — Local SQLite [v1.9.3]
+# Kanban Board — Local SQLite [v1.9.4]
 
 A local-only kanban board for organizing tasks across four default columns (To Do, Blocked, In Progress, Done). Every database lives in its own `.sqlite` file on your machine — no accounts, no cloud sync, no external services.
 
@@ -12,6 +12,7 @@ A local-only kanban board for organizing tasks across four default columns (To D
 - **Label presets** — Color-coded badges on cards. Customize colors, display aliases per-database via the "Manage Labels" button in the top bar. Different databases have independent label sets.
 - **Search & theme** — Search all cards' titles + descriptions (`Ctrl+K` / `Cmd+K`, debounced 250ms). Toggle dark/light mode; your choice persists in a cookie (you can also use OS preference when no cookie exists). Search does not auto-clear; press `Esc` to restore the board.
 - **Column management** — Right-click context menu: rename, reorder, delete (children are soft-deleted along with it).
+- **Recycle bin** — Deleted tasks go to a recycle bin instead of being erased. Recover individual items or empty the bin entirely. Column deletion cascades into the bin as well.
 - **Import & Export** — Download the current board as a `.sqlite` file; import another to replace in-memory state. Auto-save kicks in once you've chosen where to persist.
 
 ## Keyboard shortcuts
@@ -31,7 +32,7 @@ Each `.sqlite` file uses three main tables: `columns` (board layout), `tasks` (c
 
 | File | Purpose |
 |---|---|
-| `index.html` | Single-file app (~3300 lines) — all CSS and JS in one file, no build step |
+| `index.html` | Single-file app (~3300 lines) — all CSS and JS in one file, no build step (line count drifts as features evolve) |
 | `server.js` | Node HTTP server with API endpoints for disk persistence |
 | `start.sh` | Startup script (Node first, Python fallback) |
 | `assets/` | Static assets: SunEditor WYSIWYG, SQLite WASM, dark theme CSS overrides |
@@ -51,6 +52,7 @@ Cookie-based resume of the last opened database only works in **HTTP mode** (loc
 1. Install **Node.js** — required for correct MIME type on `.wasm`. Python fallback (`python -m http.server`) serves static files but has *no API support*, so save/open features won't work.
 2. Run `./start.sh [port]` (defaults to 8089) or `node server.js` (foreground). Note: `node server.js` always binds to 8089 regardless of CLI arguments — port customization only works via `start.sh`. Server log → `/tmp/kanban-server.log`.
 3. Open http://localhost:8089 in your browser and choose **Create new database** or **Open existing .sqlite**.
+4. Add tasks, drag them between columns, and use **Save .sqlite** when you're done (auto-save only works on HTTPS).
 
 ## Returning users
 
